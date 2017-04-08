@@ -46,13 +46,13 @@ class SraReader(object):
     
     def __enter__(self):
         self.start()
-        yield self
+        return self
     
     def __exit__(self, exception_type, exception_value, traceback):
         self.finish()
     
     def __iter__(self):
-        for _, start, size in self.batch_iterator(self.read_count):
+        for _, start, size in self.batch_iterator(total=self.read_count):
             with self.read_collection.getReadRange(start + 1, size, Read.all) as read:
                 for _ in range(size):
                     read.nextRead()
@@ -64,6 +64,7 @@ class SraReader(object):
         self.read_collection = NGS.openReadCollection(self.accn)
         self.run_name = self.read_collection.getName()
         self.read_count = self.read_collection.getReadCount()
+        print(self.read_count)
     
     def finish(self):
         """Close the read collection.
@@ -139,11 +140,11 @@ def sra_dump(
         writer = FifoWriter(**args)
     else:
         if compression is True:
-            compression = 'gz'
+            compression = 'gzip'
         if compression:
             args = dict(
                 (key, '{}.{}'.format(name, compression)) 
-                for key, name in args)
+                for key, name in args.items())
         writer = FileWriter(**args, compression=compression)
     
     reader = SraReader(accn, batch_size=batch_size, **batcher_args)

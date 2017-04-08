@@ -19,6 +19,7 @@ setup(
     author_email='john.didion@nih.gov',
     license='Public Domain',
     packages = ['srastream'],
+    scripts = ['bin/sra_dump'],
     install_requires = requirements,
     tests_require = ['pytest', 'pytest-cov'],
     classifiers=[
