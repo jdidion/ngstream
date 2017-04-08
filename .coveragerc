@@ -1,0 +1,14 @@
+[run]
+omit =
+    tests/*
+    setup.py
+    srastream/_version.py
+    versioneer.py
+    *site-packages/*
+
+[report]
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    raise NotImplementedError
+    if __name__ == .__main__.:

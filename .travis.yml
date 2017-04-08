@@ -1,0 +1,21 @@
+sudo: false
+language: python
+cache:
+  directories:
+    - $HOME/.cache/pip
+python:
+  - 3.3
+  - 3.4
+  - 3.5
+  - 3.6
+install:
+  - pip install --upgrade pip wheel
+  - pip install pytest-cov
+  - pip install coveralls
+  - pip install pylint
+  - make install
+script:
+  - make test
+after_success:
+  - coveralls
+  - pylint srastream
