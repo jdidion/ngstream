@@ -20,7 +20,7 @@ setup(
     license='Public Domain',
     packages = ['srastream'],
     scripts = ['bin/sra_dump'],
-    install_requires = requirements,
+    install_requires = ['xphyle'],
     tests_require = ['pytest', 'pytest-cov'],
     classifiers=[
         'Development Status :: 3 - Alpha',

@@ -59,30 +59,19 @@ class Batcher(object):
                 progress = False
         self.progress = progress
     
-    def __call__(self, total=None, seq=None, items_only=False):
-        """Create an iterator. Either 'total' or 'seq' must be non-None.
+    def __call__(self, total):
+        """Create an iterator.
 
         Args:
             total: The total number of items in the sequence.
-            seq: The sequence over which to iterate.
-            items_only: Whether to only yield batches of items when 'seq' is
-                not None.
         
         Yields:
             Tuples of (batch_num, start, size), where batch_num is a 
             sequentially increasing integer starting at 0, start is the start 
             index of the batch, and size is the number of items in the batch.
             The later two can be used to index into a sequence (e.g. 
-            seq[start:(start+size)]). If `seq` is not None, the tuple has a 
-            fourth item, batch, which is a subset of 'seq'. If `items_only` is 
-            True, then only the batch is yielded.
+            seq[start:(start+size)]).
         """
-        if total is None:
-            if seq is None:
-                raise ValueError("'seq' or 'total' must be non-None")
-            else:
-                total = len(seq)
-        
         # determine the last read in the slice
         stop = min(total, self.item_stop) if self.item_stop else total
         
@@ -110,22 +99,31 @@ class Batcher(object):
         if self.progress:
             itr = self.progress(itr, total=batches)
         
-        def batch_index_iter(itr):
-            """Creates the iterator.
-            """
-            # yield batch_num, batch_start, batch_size tuples
-            for batch_num, start in enumerate(itr):
-                size = self.batch_size
-                if batch_num == (batches-1):
-                    size = limit - (batch_num * size)
-                yield (batch_num, start, size)
-
-        if seq is None:
-            return batch_index_iter(itr)
-        else:
-            for batch in batch_index_iter(itr):
-                items = seq[batch[1]:batch[2]]
-                if items_only:
-                    yield items
-                else:
-                    yield batch + (items,)
+        # yield batch_num, batch_start, batch_size tuples
+        for batch_num, start in enumerate(itr):
+            size = self.batch_size
+            if batch_num == (batches-1):
+                size = limit - (batch_num * size)
+            yield (batch_num, start, size)
+    
+    def batches_from_sequence(self, seq, total=None, items_only=False):
+        """Create an iterator over batches of items from a sequence.
+        
+        Args:
+            seq: The sequence over which to iterate.
+            items_only: Whether to only yield batches of items when 'seq' is
+                not None.
+        
+        Return:
+            If `seq` is not None, the tuple has a fourth item, batch, which is 
+            a subset of 'seq'. If `items_only` is True, then only the batch is 
+            yielded.
+        """
+        if total is None:
+            total = len(seq)
+        for batch in self(total):
+            items = seq[batch[1]:batch[2]]
+            if items_only:
+                yield items
+            else:
+                yield batch + (items,)

@@ -2,10 +2,15 @@
 
 srastream is a small python (3.3+) library that makes it easy to stream NGS reads from the Sequence Read Archive (SRA) given an accession number.
 
+# Dependencies
+
+* Interacting with SRA requires [NGS](https://github.com/ncbi/ngs) and the python language bindings to be installed. Follow the instructions [here](https://github.com/ncbi/ngs/wiki/Building-and-Installing-from-Source).
+* [xphyle](https://github.com/jdidion/xphyle) version 2.2.3+ (installed automatically by pip)
+
 # Installation
 
 ```
-pip install git+git://github.com/jdidion/srastream
+pip install srastream
 ```
 
 # Building from source
@@ -21,8 +26,8 @@ make
 ```python
 from srastream import sra_dump
 
-# Grab 1000 read pairs from a run and write them to FASTQ files.
-result = sra_dump('ERR1912997', item_limit=1000)
+# Grab 1000 read pairs from an SRA run and write them to FASTQ files.
+result = sra_dump('SRR3618567', item_limit=1000)
 print("Wrote {read_count} reads from {accn} to {file1}, {file2}".format(
     **result))
 
@@ -33,6 +38,10 @@ result = sra_dump('ERR1912997', fifos=True, batch_size=1000)
 print("Streamed {read_count} reads from {accn} to {file1}, {file2}".format(
     **result))
 ```
+
+# Documentation
+
+Coming soon
 
 # Developers
 

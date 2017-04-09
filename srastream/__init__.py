@@ -52,6 +52,8 @@ class SraReader(object):
         self.finish()
     
     def __iter__(self):
+        if self.read_collection is None:
+            raise Exception("Must call start() first")
         for _, start, size in self.batch_iterator(total=self.read_count):
             with self.read_collection.getReadRange(start + 1, size, Read.all) as read:
                 for _ in range(size):
@@ -64,7 +66,6 @@ class SraReader(object):
         self.read_collection = NGS.openReadCollection(self.accn)
         self.run_name = self.read_collection.getName()
         self.read_count = self.read_collection.getReadCount()
-        print(self.read_count)
     
     def finish(self):
         """Close the read collection.
@@ -140,7 +141,7 @@ def sra_dump(
         writer = FifoWriter(**args)
     else:
         if compression is True:
-            compression = 'gzip'
+            compression = 'gz'
         if compression:
             args = dict(
                 (key, '{}.{}'.format(name, compression)) 
