@@ -2,6 +2,9 @@
 """
 from ngs import NGS
 from ngs.Read import Read
+# Import members of .utils and .writers to make them available from the
+# top-level module.
+# pylint: disable=wildcard-import
 from .utils import *
 from .writers import *
 from ._version import get_versions
@@ -138,7 +141,7 @@ def sra_dump(
     if fifos:
         if isinstance(fifos, str):
             args['buffer'] = fifos
-        writer = FifoWriter(**args)
+        string_writer = FifoWriter(**args)
     else:
         if compression is True:
             compression = 'gz'
@@ -146,10 +149,10 @@ def sra_dump(
             args = dict(
                 (key, '{}.{}'.format(name, compression)) 
                 for key, name in args.items())
-        writer = FileWriter(**args, compression=compression)
+        string_writer = FileWriter(**args, compression=compression)
     
     reader = SraReader(accn, batch_size=batch_size, **batcher_args)
-    writer = FastqWriter(writer, batch_size) 
+    writer = FastqWriter(string_writer, batch_size) 
     with reader, writer:
         for reads in reader:
             writer(*reads)

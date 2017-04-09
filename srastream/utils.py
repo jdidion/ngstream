@@ -54,7 +54,7 @@ class Batcher(object):
             try:
                 import tqdm
                 progress = tqdm.tqdm
-            except:
+            except ImportError:
                 # TODO: what to do if user doesn't have tqdm installed?
                 progress = False
         self.progress = progress
