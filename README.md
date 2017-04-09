@@ -5,6 +5,7 @@ srastream is a small python (3.3+) library that makes it easy to stream NGS read
 # Dependencies
 
 * Interacting with SRA requires [NGS](https://github.com/ncbi/ngs) and the python language bindings to be installed. Follow the instructions [here](https://github.com/ncbi/ngs/wiki/Building-and-Installing-from-Source).
+* For writing to FIFOs, a pipe buffer is required. We recommend [pv](https://linux.die.net/man/1/pv).
 * [xphyle](https://github.com/jdidion/xphyle) version 2.2.3+ (installed automatically by pip)
 
 # Installation
