@@ -56,7 +56,7 @@ Coming soon
 
 * We welcome any contributions via pull requests.
 * Unit tests are highly desirable.
-* Style-wise, we try to adhere to the Google python style guidelines.
+* Style-wise, we try to adhere to PEP8, and to the [Google python style guidelines](https://google.github.io/styleguide/pyguide.html) when there is ambiguity.
 * We use Google-style docstrings, which are formatted by the [Napoleon Sphinx Plugin](https://pypi.python.org/pypi/sphinxcontrib-napoleon).
 * We run pylint as part of each build and strive to maintain a 10/10 score.
 * We enforce a [Code of Conduct](CODE_OF_CONDUCT.md).
