@@ -5,22 +5,54 @@ import srastream
 def main():
     parser = ArgumentParser()
     parser.add_argument(
-        '-p', '--prefix', default=None, help="File name prefix.")
-    parser.add_argument(
         '-f', '--fifos', action='store_true', default=False,
         help="Create FIFOs rather than regular files")
+    parser.add_argument(
+        '-F', '--first-read',
+        type=int, default=0, metavar="N",
+        help="The first read to stream")
+    parser.add_argument(
+        '-L', '--last-read',
+        type=int, default=None, metavar="N",
+        help="The last read to stream")
     parser.add_argument(
         '-M', '--max-reads', type=int, default=None,
         help="Maximum number of reads to fetch")
     parser.add_argument(
+        '-O', '--output-mode',
+        choices=('w','a'), default='w',
+        help="Open mode for output files; w=write (overwrite existing file), "
+             "a=append.")
+    parser.add_argument(
+        '-p', '--prefix', default=None, help="File name prefix.")
+    parser.add_argument(
+        '-S', '--batch-size',
+        type=int, default=1000, metavar="N",
+        help="Number of reads to process in each batch.")
+    parser.add_argument(
+        '-T', '--batch-step',
+        type=int, default=1, metavar="N",
+        help="Only stream each Nth batch")
+    parser.add_argument(
+        '--slice',
+        default=None, metavar="FIRST:LAST:SIZE:STEP",
+        help="More susccint way to specify -f -l -s -t")
+    parser.add_argument(
+        '--buffer', 
+        default='pv -q -B 1M', help="Buffer command for writing FIFOs.")
+    parser.add_argument(
         '--nocompression', dest='compression', action='store_false', 
         default=True, help="Do not gzip-compress output files")
+    parser.add_argument(
+        '--noprogress', dest='progress', action='store_false',
+        default=True, help="Do not show a progress bar")
     parser.add_argument('accn', help="SRA Accession.")
     args = parser.parse_args()
 
     srastream.sra_dump(
         args.accn, prefix=args.prefix, compression=args.compression, 
-        fifos=args.fifos, item_limit=args.max_reads)
+        fifos=args.fifos, item_limit=args.max_reads, progress=args.progress)
 
 if __name__ == '__main__':
     main()
+

@@ -11,6 +11,10 @@ from ._version import get_versions
 __version__ = get_versions()['version']
 del get_versions
 
+# TODO: [JD] Incoprorate Popen hacks from
+# https://github.com/brentp/toolshed/blob/master/toolshed/files.py
+# https://github.com/wal-e/wal-e/blob/master/wal_e/pipebuf.py
+
 class SraReader(object):
     """Iterates through a read collection for a given accession number using
     the ngs-lib python bindings.
@@ -115,7 +119,7 @@ def sra_reads(read, paired=None, expected_fragments=None):
     return tuple(next_frag() for i in range(num_fragments))
 
 def sra_dump(
-        accn, prefix=None, compression=True, fifos=False, batch_size=1000,
+        accn, prefix=None, compression=True, fifos=False, batch_size=1000, 
         **batcher_args):
     """Convenience method to stream paired-end reads from SRA to FASTQ files.
 
