@@ -1,3 +1,5 @@
+[![PyPi](https://img.shields.io/pypi/v/srastream.svg?branch=master)](https://pypi.python.org/pypi/srastream)
+
 # srastream: NGS lib wrapper for easy SRA streaming.
 
 srastream is a small python (3.3+) library that makes it easy to stream NGS reads from the Sequence Read Archive (SRA) given an accession number.
