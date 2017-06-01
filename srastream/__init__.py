@@ -50,6 +50,7 @@ class SraReader(object):
         self.read_collection = None
         self.run_name = None
         self.read_count = None
+        self.frag_count = None
     
     def __enter__(self):
         self.start()
@@ -60,7 +61,7 @@ class SraReader(object):
     
     def __iter__(self):
         if self.read_collection is None:
-            raise Exception("Must call start() first")
+            raise ValueError("Must call start() first")
         for _, start, size in self.batch_iterator(total=self.read_count):
             with self.read_collection.getReadRange(start + 1, size, Read.all) as read:
                 for _ in range(size):
@@ -73,6 +74,11 @@ class SraReader(object):
         self.read_collection = NGS.openReadCollection(self.accn)
         self.run_name = self.read_collection.getName()
         self.read_count = self.read_collection.getReadCount()
+        # grab the first read use it to determine whether the dataset
+        # is single- or paired-end
+        with self.read_collection.getReadRange(0, 1) as read:
+            read.nextRead()
+            self.frag_count = len(sra_reads(read))
     
     def finish(self):
         """Close the read collection.
@@ -80,6 +86,23 @@ class SraReader(object):
         if self.read_collection is not None:
             self.read_collection.close()
             self.read_collection = None
+    
+    @property
+    def name(self):
+        return self.getName()
+    
+    @property
+    def paired(self):
+        if self.frag_count is None:
+            raise ValueError("Must call start() first")
+        return self.frag_count == 2
+    
+    def __getattr__(self, name):
+        if self.read_collection is None:
+            raise AttributeError(
+                "'SraReader' has no attribute '{}'; you might need "
+                "to call 'start()' first.".format(name))
+        return getattr(self.read_collection, name)
 
 def sra_reads(read, paired=None, expected_fragments=None):
     """Creates sequence of (name, sequence, qualities) tuples from the current
