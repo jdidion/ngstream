@@ -26,9 +26,16 @@ class BatchWriter(object):
         self.lines_per_row = lines_per_row
         self.bufsize = batch_size * lines_per_row
         self.linesep = linesep
+        self._end_records = [self.linesep]
         self.read1_batch = self._create_batch_list()
-        self.read2_batch = copy.copy(self.read1_batch)
+        if self.paired:
+            self.read2_batch = copy.copy(self.read1_batch)
+            self._end_records.append(self.linesep)
         self.index = 0
+    
+    @property
+    def paired(self):
+        return self.writer.paired
     
     def _create_batch_list(self):
         """Create the list to use for buffering reads. Can be overridden, but
@@ -36,8 +43,8 @@ class BatchWriter(object):
         """
         return [None] * self.bufsize
     
-    def __call__(self, read1, read2):
-        """Add a read pair to the buffer. Writes the batch to the underlying
+    def __call__(self, read1, read2=None):
+        """Add a read/pair to the buffer. Writes the batch to the underlying
         writer if the buffer is full.
         
         Args:
@@ -45,7 +52,8 @@ class BatchWriter(object):
             read2: read2 tuple
         """
         self.add_to_batch(*read1, self.read1_batch, self.index)
-        self.add_to_batch(*read2, self.read2_batch, self.index)
+        if read2:
+            self.add_to_batch(*read2, self.read2_batch, self.index)
         self.index += self.lines_per_row
         if self.index >= self.bufsize:
             self.flush()
@@ -75,22 +83,24 @@ class BatchWriter(object):
             last: Is this the last call to flush? If not, a trailing linesep
                 is written.
         """
-        if self.index < self.bufsize:
-            self.writer(
-                self.linesep.join(self.read1_batch[0:self.index]),
-                self.linesep.join(self.read2_batch[0:self.index]))
-        else:
-            self.writer(
-                self.linesep.join(self.read1_batch),
-                self.linesep.join(self.read2_batch))
-        self.writer(self.linesep, self.linesep)
+        def batch_to_str(batch):
+            if self.index < self.bufsize:
+                return self.linesep.join(batch[0:self.index])
+            else:
+                return self.linesep.join(batch)
+        reads = [batch_to_str(self.read1_batch)]
+        if self.paired:
+            reads.append(batch_to_str(self.read2_batch))
+        self.writer(*reads)
+        self.writer(*self._end_records)
         self.index = 0
     
     def close(self):
         """Clear the buffers and close the underlying string writer.
         """
         self.read1_batch = None
-        self.read2_batch = None
+        if self.paired:
+            self.read2_batch = None
         self.writer.close()
 
 class FastqWriter(BatchWriter):
@@ -110,7 +120,7 @@ class FastqWriter(BatchWriter):
 class StringWriter(object):
     """Interface for classes that write strings to files.
     """
-    def __call__(self, read1_str, read2_str):
+    def __call__(self, read1_str, read2_str=None):
         """Write strings to a pair of files.
         
         Args:
@@ -135,22 +145,28 @@ class FifoWriter(StringWriter):
             and stdout
         kwargs: Additional arguments to pass to Popen
     """
-    def __init__(self, file1, file2, buffer='pv -B ', **kwargs):
+    def __init__(self, file1, file2=None, buffer='pv -B ', **kwargs):
+        self.paired = file2 is not None
         self.fifo1 = Popen(
             '{buffer} > {fifo}'.format(buffer=buffer, fifo=file1),
             stdin=PIPE, shell=True, universal_newlines=True, **kwargs)
-        self.fifo2 = Popen(
-            '{buffer} > {fifo}'.format(buffer=buffer, fifo=file2),
-            stdin=PIPE, shell=True, universal_newlines=True, **kwargs)
+        if self.paired:
+            self.fifo2 = Popen(
+                '{buffer} > {fifo}'.format(buffer=buffer, fifo=file2),
+                stdin=PIPE, shell=True, universal_newlines=True, **kwargs)
     
-    def __call__(self, read1_str, read2_str):
+    def __call__(self, read1_str, read2_str=None):
         self.fifo1.stdin.write(read1_str)
-        self.fifo2.stdin.write(read2_str)
+        if read2_str:
+            self.fifo2.stdin.write(read2_str)
     
     def close(self):
-        for fifo in (self.fifo1, self.fifo2):
+        def close_fifo(fifo):
             fifo.stdin.close()
             fifo.terminate()
+        close_fifo(self.fifo1)
+        if self.paired:
+            close_fifo(self.fifo2)
 
 class FileWriter(StringWriter):
     """String writer that opens and writes to a pair of files.
@@ -160,14 +176,18 @@ class FileWriter(StringWriter):
         file2: Path to the read2 file
         kwargs: Additional arguments to pass to the ``open`` call.
     """
-    def __init__(self, file1, file2, **kwargs):
+    def __init__(self, file1, file2=None, **kwargs):
+        self.paired = file2 is not None
         self.file1 = xopen(file1, 'wt', **kwargs)
-        self.file2 = xopen(file2, 'wt', **kwargs)
+        if self.paired:
+            self.file2 = xopen(file2, 'wt', **kwargs)
     
-    def __call__(self, read1_str, read2_str):
+    def __call__(self, read1_str, read2_str=None):
         self.file1.write(read1_str)
-        self.file2.write(read2_str)
+        if read2_str:
+            self.file2.write(read2_str)
     
     def close(self):
-        for fileobj in (self.file1, self.file2):
-            fileobj.close()
+        self.file1.close()
+        if self.paired:
+            self.file2.close()

@@ -144,7 +144,7 @@ def sra_reads(read, paired=None, expected_fragments=None):
 def sra_dump(
         accn, prefix=None, compression=True, fifos=False, batch_size=1000, 
         **batcher_args):
-    """Convenience method to stream paired-end reads from SRA to FASTQ files.
+    """Convenience method to stream reads from SRA to FASTQ files.
 
     Args:
         accn: SRA accession.
@@ -161,29 +161,31 @@ def sra_dump(
         A dict containing the output file names ('file1' and 'file2'),
         and read_count.
     """
-    args = dict(
-        ('file{}'.format(read), '{}.{}.fq'.format(prefix or accn, read)) 
-        for read in (1,2))
-    
-    if fifos:
-        if isinstance(fifos, str):
-            args['buffer'] = fifos
-        string_writer = FifoWriter(**args)
-    else:
-        if compression is True:
-            compression = 'gz'
-        if compression:
-            args = dict(
-                (key, '{}.{}'.format(name, compression)) 
-                for key, name in args.items())
-        string_writer = FileWriter(**args, compression=compression)
-    
     reader = SraReader(accn, batch_size=batch_size, **batcher_args)
-    writer = FastqWriter(string_writer, batch_size) 
-    with reader, writer:
-        for reads in reader:
-            writer(*reads)
+    with reader:
+        read_indexes = (1,2) if reader.paired else (1,)
+        
+        writer_args = dict(
+            ('file{}'.format(read), '{}.{}.fq'.format(prefix or accn, read)) 
+            for read in read_indexes)
+        
+        if fifos:
+            if isinstance(fifos, str):
+                writer_args['buffer'] = fifos
+            string_writer = FifoWriter(**writer_args)
+        else:
+            if compression is True:
+                compression = 'gz'
+            if compression:
+                writer_args = dict(
+                    (key, '{}.{}'.format(name, compression)) 
+                    for key, name in writer_args.items())
+            string_writer = FileWriter(**writer_args, compression=compression)
+        
+        with FastqWriter(string_writer, batch_size) as writer:
+            for reads in reader:
+                writer(*reads)
     
-    args['accn'] = accn
-    args['read_count'] = reader.read_count
-    return args
+    writer_args['accn'] = accn
+    writer_args['read_count'] = reader.read_count
+    return writer_args
