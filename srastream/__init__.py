@@ -76,7 +76,8 @@ class SraReader(object):
         self.read_count = self.read_collection.getReadCount()
         # grab the first read use it to determine whether the dataset
         # is single- or paired-end
-        with self.read_collection.getReadRange(0, 1) as read:
+        with self.read_collection.getReadRange(1, 1, Read.all) as read:
+            read.nextRead()
             self.frag_count = len(sra_reads(read))
     
     def finish(self):
