@@ -1,5 +1,5 @@
 include versioneer.py
-include srastream/_version.py
+include ngstream/_version.py
 include README.rst
 include LICENSE
 include tests/test*.py

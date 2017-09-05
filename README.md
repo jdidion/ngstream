@@ -1,19 +1,21 @@
-[![PyPi](https://img.shields.io/pypi/v/srastream.svg?branch=master)](https://pypi.python.org/pypi/srastream)
+[![PyPi](https://img.shields.io/pypi/v/ngstream.svg?branch=master)](https://pypi.python.org/pypi/ngstream)
 
-# srastream: NGS lib wrapper for easy SRA streaming.
+# ngstream: Streaming NGS reads from public databases
 
-srastream is a small python (3.3+) library that makes it easy to stream NGS reads from the Sequence Read Archive (SRA) given an accession number.
+ngstream is a small python (3.4+) library that makes it easy to stream NGS reads from the Sequence Read Archive (SRA), GA4GH, and (eventually) other public databases, given an accession number.
 
 # Dependencies
 
+* [xphyle](https://github.com/jdidion/xphyle) version 2.2.3+ (installed automatically by pip)
 * Interacting with SRA requires [NGS](https://github.com/ncbi/ngs) and the python language bindings to be installed. Follow the instructions [here](https://github.com/ncbi/ngs/wiki/Building-and-Installing-from-Source).
 * For writing to FIFOs, a pipe buffer is required. We recommend [pv](https://linux.die.net/man/1/pv).
-* [xphyle](https://github.com/jdidion/xphyle) version 2.2.3+ (installed automatically by pip)
+
+Note that the SRA toolkit by default caches downloaded data -- if you mysteriously run out of hard disk space, this is probably why. Instructions on how to configure/disable caching are [here](https://github.com/ncbi/sra-tools/wiki/Toolkit-Configuration).
 
 # Installation
 
 ```
-pip install srastream
+pip install ngstream
 ```
 
 # Building from source
@@ -27,7 +29,7 @@ make
 # Example usages:
 
 ```python
-from srastream import SraReader, sra_dump
+from ngstream.sra import SraReader, sra_dump
 
 # Grab 1000 read pairs from an SRA run and write them to FASTQ files.
 result = sra_dump('SRR3618567', item_limit=1000)

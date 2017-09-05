@@ -2,20 +2,14 @@
 """
 from ngs import NGS
 from ngs.Read import Read
-# Import members of .utils and .writers to make them available from the
-# top-level module.
-# pylint: disable=wildcard-import
-from .utils import *
-from .writers import *
-from ._version import get_versions
-__version__ = get_versions()['version']
-del get_versions
+from . import dump
+from .utils import IndexBatcher
 
-# TODO: [JD] Incoprorate Popen hacks from
+# TODO: [JD] Incorporate Popen hacks from
 # https://github.com/brentp/toolshed/blob/master/toolshed/files.py
 # https://github.com/wal-e/wal-e/blob/master/wal_e/pipebuf.py
 
-class SraReader(object):
+class SraReader():
     """Iterates through a read collection for a given accession number using
     the ngs-lib python bindings.
     
@@ -46,7 +40,7 @@ class SraReader(object):
     """
     def __init__(self, accn, batch_iterator=None, **batcher_args):
         self.accn = accn
-        self.batch_iterator = batch_iterator or Batcher(**batcher_args)
+        self.batch_iterator = batch_iterator or IndexBatcher(**batcher_args)
         self.read_collection = None
         self.run_name = None
         self.read_count = None
@@ -162,30 +156,4 @@ def sra_dump(
         and read_count.
     """
     reader = SraReader(accn, batch_size=batch_size, **batcher_args)
-    with reader:
-        read_indexes = (1,2) if reader.paired else (1,)
-        
-        writer_args = dict(
-            ('file{}'.format(read), '{}.{}.fq'.format(prefix or accn, read)) 
-            for read in read_indexes)
-        
-        if fifos:
-            if isinstance(fifos, str):
-                writer_args['buffer'] = fifos
-            string_writer = FifoWriter(**writer_args)
-        else:
-            if compression is True:
-                compression = 'gz'
-            if compression:
-                writer_args = dict(
-                    (key, '{}.{}'.format(name, compression)) 
-                    for key, name in writer_args.items())
-            string_writer = FileWriter(**writer_args, compression=compression)
-        
-        with FastqWriter(string_writer, batch_size) as writer:
-            for reads in reader:
-                writer(*reads)
-    
-    writer_args['accn'] = accn
-    writer_args['read_count'] = reader.read_count
-    return writer_args
+    dump(reader, prefix, compression, fifos, batch_size)

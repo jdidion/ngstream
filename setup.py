@@ -10,17 +10,20 @@ if sys.version_info < (3, 3):
 import versioneer
 
 setup(
-    name='srastream',
+    name='ngstream',
     version=versioneer.get_version(),
     cmdclass=versioneer.get_cmdclass(),
-    description='Utilities for streaming NGS reads from SRA accessions.',
-    url='https://github.com/jdidion/srastream',
+    description='Utilities for streaming NGS reads from SRA and GA4GH accessions.',
+    url='https://github.com/jdidion/ngstream',
     author='John Didion',
     author_email='john.didion@nih.gov',
     license='Public Domain',
-    packages = ['srastream'],
+    packages = ['ngstream'],
     scripts = ['bin/sra_dump'],
     install_requires = ['xphyle'],
+    extras_require = {
+        'htsget' : ['requests'],
+    },
     tests_require = ['pytest', 'pytest-cov'],
     classifiers=[
         'Development Status :: 3 - Alpha',
@@ -28,6 +31,7 @@ setup(
         'Topic :: Software Development :: Libraries :: Python Modules',
         'Topic :: Scientific/Engineering :: Bio-Informatics',
         'License :: Public Domain',
+        'Programming Language :: Python :: 3',
         'Programming Language :: Python :: 3.3',
         'Programming Language :: Python :: 3.4',
         'Programming Language :: Python :: 3.5',

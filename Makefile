@@ -21,8 +21,8 @@ release:
 	$(TEST)
 	python setup.py sdist bdist_wheel
 	# release
-	twine register dist/srastream-$(version).tar.gz
-	twine upload dist/srastream-$(version).tar.gz
+	twine register dist/ngstream-$(version).tar.gz
+	twine upload dist/ngstream-$(version).tar.gz
 	# push new tag after successful build
 	git push origin --tags
 

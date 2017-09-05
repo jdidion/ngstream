@@ -1,5 +1,7 @@
 v0.2.0 (dev)
 ------------
+* Changed name from srastream to ngstream
+* Added support for htsget
 
 v0.1.3 (2017.06.01)
 -------------------

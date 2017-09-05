@@ -6,7 +6,7 @@ import os
 from subprocess import Popen, PIPE
 from xphyle import xopen
 
-class BatchWriter(object):
+class BatchWriter():
     """Wrapper for a string writer (e.g. FifoWriter) that improves performance
     by buffering a set number of reads and sending them as a single call to the
     string writer.
@@ -106,7 +106,7 @@ class BatchWriter(object):
 class FastqWriter(BatchWriter):
     """BatchWriter implementation for FASTQ format.
     """
-    def __init__(self, writer, batch_size):
+    def __init__(self, writer, batch_size=1000):
         super(FastqWriter, self).__init__(writer, batch_size, 4)
     
     def _create_batch_list(self):
@@ -117,7 +117,7 @@ class FastqWriter(BatchWriter):
         batch[index+1] = sequence
         batch[index+3] = qualities
 
-class StringWriter(object):
+class StringWriter():
     """Interface for classes that write strings to files.
     """
     def __call__(self, read1_str, read2_str=None):
@@ -133,8 +133,35 @@ class StringWriter(object):
         """
         raise NotImplementedError()
 
+class BufferWriter(StringWriter):
+    """StringWriter that writes contents to an in-memory buffer.
+    """
+    def __init__(self, paired=False):
+        from io import StringIO
+        self._buffers = [[StringIO(), None], [None, None]]
+        if paired:
+            self._buffers[1][0] = StringIO()
+    
+    @property
+    def value(self):
+        return tuple(
+            self._buffers[i][1] or (
+                self._buffers[i][0].getvalue() if self._buffers[i][0] else None)
+            for i in range(2))
+    
+    def __call__(self, read1_str, read2_str=None):
+        self._buffers[0][0].write(read1_str)
+        if read2_str:
+            self._buffers[1][0].write(read1_str)
+    
+    def close(self):
+        for i in range(2):
+            if self._buffers[i][0]:
+                self._buffers[i][1] = self._buffers[i][0].getvalue()
+                self._buffers[i][0] = None
+    
 class FifoWriter(StringWriter):
-    """String writer that opens and writes to a pair of FIFOs in a non-blocking
+    """StringWriter that opens and writes to a pair of FIFOs in a non-blocking
     way. Each FIFO is written to by opening a subprocess in which stdin is
     piped through pv (with -B option to set max buffer size) to a FIFO.
 
@@ -169,7 +196,7 @@ class FifoWriter(StringWriter):
             close_fifo(self.fifo2)
 
 class FileWriter(StringWriter):
-    """String writer that opens and writes to a pair of files.
+    """StringWriter that opens and writes to a pair of files.
     
     Args:
         file1: Path to the read1 file
