@@ -225,7 +225,7 @@ class CoordinateBatcher():
             elif self.chromosome_starts:
                 chrom_start = max(0, self.chromosome_starts)
             else:
-                chrom_stop = 0
+                chrom_start = 0
             
             if isinstance(self.chromosome_stops, dict):
                 chrom_stop = self.chromosome_stops[chrom]
@@ -255,7 +255,7 @@ class CoordinateBatcher():
                     break
                 stop = min(start + self.window_size, chrom_stop)
                 window += self.window_step
-                yield (window_num, chrom, start, stop)
+                yield (window, chrom, start, stop)
 
 def _init_progress(progress):
     if progress is True:

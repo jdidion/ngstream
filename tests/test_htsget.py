@@ -3,16 +3,14 @@ Test cases using a simple HTTP server running locally.
 Lots of code borrowed from Jerome Kelleher's htsget python library, which is
 under the Apache 2.0 license.
 """
+from unittest import TestCase
 import json
 import os
-import subprocess
 import sys
 import tempfile
 import threading
-import unittest
 from unittest import mock
 from http.server import BaseHTTPRequestHandler
-import time
 import socketserver
 from urllib.parse import urljoin
 
@@ -48,7 +46,6 @@ class TestServer(socketserver.TCPServer):
 
 
 class TestRequestHandler(BaseHTTPRequestHandler):
-
     ticket_path = "/ticket"
     ticket_url = urljoin(SERVER_URL, ticket_path)
 
@@ -87,7 +84,7 @@ class TestRequestHandler(BaseHTTPRequestHandler):
             self.send_error(404)
 
 
-class ServerTest(unittest.TestCase):
+class ServerTest(TestCase):
     """
     Superclass of tests needing a server running in a thread.
     """

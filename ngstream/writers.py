@@ -2,6 +2,7 @@
 """Writing reads to files.
 """
 import copy
+from io import StringIO
 import os
 from subprocess import Popen, PIPE
 from xphyle import xopen
@@ -137,7 +138,7 @@ class BufferWriter(StringWriter):
     """StringWriter that writes contents to an in-memory buffer.
     """
     def __init__(self, paired=False):
-        from io import StringIO
+        self.paired = paired
         self._buffers = [[StringIO(), None], [None, None]]
         if paired:
             self._buffers[1][0] = StringIO()
@@ -152,7 +153,7 @@ class BufferWriter(StringWriter):
     def __call__(self, read1_str, read2_str=None):
         self._buffers[0][0].write(read1_str)
         if read2_str:
-            self._buffers[1][0].write(read1_str)
+            self._buffers[1][0].write(read2_str)
     
     def close(self):
         for i in range(2):

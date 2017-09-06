@@ -197,7 +197,7 @@ def get_ticket_request_url(
     new_url[4] = urlencode(get_vars, doseq=True)
     return urlunparse(new_url)
 
-def httpget(self, *args, **kwargs):
+def httpget(*args, **kwargs):
     """Send a GET request and return the response.
     """
     response = requests.get(*args, **kwargs)

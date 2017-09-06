@@ -1,7 +1,10 @@
 tests = tests
+desc = ''
+# Use this option to show full stack trace for errors
+#pytestopts = "--full-trace"
 
 BUILD = python setup.py install
-TEST  = py.test --cov --cov-report term-missing $(tests)
+TEST  = py.test -m "not perf" --cov --cov-report term-missing $(pytestopts) $(tests)
 
 all:
 	$(BUILD)
@@ -13,7 +16,18 @@ install:
 test:
 	$(TEST)
 
+perftest:
+	py.test -m "perf" $(tests)
+
+clean:
+	rm -Rf __pycache__
+	rm -Rf **/__pycache__/*
+	rm -Rf dist
+	rm -Rf build
+	rm -Rf *.egg-info
+
 release:
+	$(clean)
 	# tag
 	git tag $(version)
 	# build
@@ -21,10 +35,15 @@ release:
 	$(TEST)
 	python setup.py sdist bdist_wheel
 	# release
-	twine register dist/ngstream-$(version).tar.gz
 	twine upload dist/ngstream-$(version).tar.gz
 	# push new tag after successful build
 	git push origin --tags
+	# create release in GitHub
+	curl -v -i -X POST \
+		-H "Content-Type:application/json" \
+		-H "Authorization: token $(token)" \
+		https://api.github.com/repos/jdidion/ngstream/releases \
+		-d '{"tag_name":"$(version)","target_commitish": "master","name": "$(version)","body": "$(desc)","draft": false,"prerelease": false}'
 
 docs:
 	make -C docs api
@@ -34,4 +53,4 @@ readme:
 	pandoc --from=markdown --to=rst --output=README.rst README.md
 
 lint:
-	pylint srastream
+	pylint ngstream

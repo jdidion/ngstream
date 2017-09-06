@@ -3,5 +3,5 @@
 build/
 dist/
 *.pyc
-srastream.egg-info/
+ngstream.egg-info/
 docs/_build/
