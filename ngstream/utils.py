@@ -2,7 +2,12 @@
 """
 from collections import OrderedDict
 import csv
+import io
 import math
+from Queue import Queue, Empty
+from subprocess import Popen, PIPE
+from threading import Thread
+
 
 class IndexBatcher():
     """Creates iterators over batches of items for indexed-based streaming
@@ -123,6 +128,7 @@ class IndexBatcher():
             else:
                 yield batch + (items,)
 
+
 # TODO: fetch reference from url given a name and source (e.g. UCSC)
 
 class GenomeReference():
@@ -165,7 +171,8 @@ class GenomeReference():
         """Returns a tuple of chromosome names.
         """
         return tuple(self.chromosomes.keys())
-    
+
+
 class CoordinateBatcher():
     """Creates iterators over batches of genomic coordinates. The typical use
     is to iterate over specific windows of a single chromosome, or over all
@@ -256,6 +263,38 @@ class CoordinateBatcher():
                 stop = min(start + self.window_size, chrom_stop)
                 window += self.window_step
                 yield (window, chrom, start, stop)
+
+
+class ProcessWriterReader(Thread):
+    def __init__(self, command, write_mode, read_mode):
+        self.process = Popen(command, stdin=PIPE, stdout=PIPE)
+        self.writer = self.process.stdin
+        if write_mode == 't':
+            self.writer = io.TextIOWrapper(self.writer)
+        self.reader = self.process.stdout
+        if read_mode == 't':
+            self.reader = io.TextIOWrapper(self.reader)
+        self.queue = Queue()
+        
+        def read_into_queue(reader, queue):
+            while True:
+                line = reader.readline()
+                if line:
+                    queue.put(line)
+                else:
+                    # Signal that we've reached EOF
+                    queue.put(None)
+                    return
+        
+        super().__init__(target=read_into_queue, args=(self.reader, self.queue))
+        self.daemon = True
+        self.start()
+    
+    def write(self, data):
+        self.writer.write(data)
+    
+    def readline(self):
+        return self.queue.get()
 
 def _init_progress(progress):
     if progress is True:

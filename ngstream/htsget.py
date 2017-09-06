@@ -7,12 +7,12 @@ https://github.com/jeromekelleher/htsget.
 import base64
 import csv
 import logging
+import io
 import os
 import requests
-from subprocess import Popen, PIPE
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 from . import dump
-from .utils import CoordinateBatcher, GenomeReference
+from .utils import CoordinateBatcher, GenomeReference, ProcessWriterReader
 
 CONTENT_LENGTH = "Content-Length"
 
@@ -45,8 +45,6 @@ class HtsgetReader():
         self._cache = {}
         self.samtools_path = samtools_path
         self._bam_to_sam = None
-        self._bam_writer = None
-        self._sam_reader = None
     
     @property
     def accn(self):
@@ -64,11 +62,8 @@ class HtsgetReader():
         """
         if self._bam_to_sam:
             raise ValueError("Already called start()")
-        self._bam_to_sam = Popen(
-            (self.samtools_path, 'view', '-'),
-            stdin=PIPE, stdout=PIPE)
-        self._bam_writer = self._bam_to_sam.stdin
-        self._sam_reader = csv.reader(self._bam_to_sam.stdout, delimiter="\t")
+        self._bam_to_sam = ProcessWriterReader(
+            (self.samtools_path, 'view', '-'), 'b', 't')
     
     def finish(self):
         # TODO: log number of orphaned reads
