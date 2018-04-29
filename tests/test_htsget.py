@@ -22,10 +22,21 @@ PORT = 6160
 SERVER_URL = "http://localhost:{}".format(PORT)
 REFERENCE = dict(chr1=100)
 
-class TestUrlInstance(object):
-    def __init__(self, fname, data=None, headers={}, error_code=None, truncate=False):
-        self.url = "/input/{}".format(fname)
-        self._data = data
+class MockURLInstance():
+    root = os.path.dirname(__file__)
+    
+    def __init__(
+            self, input_file, expected_file1, expected_file2=None, headers={}, 
+            error_code=None, truncate=False):
+        self.url = "/input/{}".format(input_file)
+        self.input_file = input_file
+        self.expected_files = [
+            os.path.join(self.root, "expected", fname)
+            for fname in (expected_file1, expected_file2)
+            if fname is not None
+        ]
+        self._data = None
+        self._expected = [None, None]
         self.headers = headers
         self.error_code = error_code
         self.truncate = truncate
@@ -33,19 +44,27 @@ class TestUrlInstance(object):
     @property
     def data(self):
         if self._data is None:
-            path = os.path.dirname(__file__) + self.url
-            with open(path, 'rb') as inp:
+            with open(os.path.join(self.root, 'input', self.input_file), 'rb') as inp:
                 self._data = inp.read()
+        return self._data
+    
+    @property
+    def expected(self):
+        if all(d is None for d in self._data):
+            for i, fname in enumerate(self.expected):
+                if fname is not None:
+                    with open(fname, 'rt') as inp:
+                        self._data[i] = inp.read()
         return self._data
 
 
-class TestServer(socketserver.TCPServer):
+class MockServer(socketserver.TCPServer):
     """
     A local test server designed to be run in a thread and shutdown smoothly
     for test cases.
     """
     allow_reuse_address = True
-    # This is set by clients to contain the list of TestUrlInstance objects.
+    # This is set by clients to contain the list of MockURLInstance objects.
     test_instances = []
 
     def shutdown(self):
@@ -53,7 +72,7 @@ class TestServer(socketserver.TCPServer):
         socketserver.TCPServer.shutdown(self)
 
 
-class TestRequestHandler(BaseHTTPRequestHandler):
+class MockRequestHandler(BaseHTTPRequestHandler):
     ticket_path = "/ticket"
     ticket_url = urljoin(SERVER_URL, ticket_path)
 
@@ -99,7 +118,7 @@ class ServerTest(TestCase):
     """
     @classmethod
     def setup_class(cls):
-        cls.httpd = TestServer(("", PORT), TestRequestHandler)
+        cls.httpd = MockServer(("", PORT), MockRequestHandler)
 
         def target():
             # Sometimes the server doesn't shutdown cleanly, but we don't
@@ -128,21 +147,30 @@ class TestDataTransfers(ServerTest):
     def assert_data_transfer_ok(self, test_instances, max_retries=0):
         self.httpd.test_instances = test_instances
         reader = HtsgetReader(
-            TestRequestHandler.ticket_url, self.reference)
+            MockRequestHandler.ticket_url, self.reference)
         buf = BufferWriter(True)
         with reader, FastqWriter(buf) as writer:
             for read in reader:
+                print(read)
                 writer(*read)
-        all_data = b"".join(test_instance.data for test_instance in test_instances)
+        all_data = [
+            "".join(
+                t.expected[i] 
+                for t in test_instances
+                if t.expected[i] is not None)
+            for i in (0, 1)
+        ]
         self.assertEqual(buf.value, all_data)
 
     # def test_simple_data(self):
     #     instances = [
-    #         TestUrlInstance(url="/data1", data=b"data1"),
-    #         TestUrlInstance(url="/data2", data=b"data2")
+    #         MockURLInstance(url="/data1", data=b"data1"),
+    #         MockURLInstance(url="/data2", data=b"data2")
     #     ]
     #     self.assert_data_transfer_ok(instances)
 
     def test_binary_data(self):
-        instances = [TestUrlInstance('paired.bam')]
+        instances = [
+            MockURLInstance('paired.bam', 'paired.1.fastq', 'paired.2.fastq')
+        ]
         self.assert_data_transfer_ok(instances)

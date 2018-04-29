@@ -103,9 +103,12 @@ class HtsgetReader():
             else:
                 raise ValueError("Unsupported URL scheme:{}".format(url.scheme))
         
-        self._bam_writer.flush()
+        self._bam_to_sam.finish()
         
-        for read in self._sam_reader:
+        while True:
+            read = self._bam_to_sam.readline()
+            if read is None:
+                break
             flags = int(read[1])
             paired = (flags & 1)
             if not paired:
@@ -130,7 +133,7 @@ class HtsgetReader():
         piece_size = 65536
         for piece in response.iter_content(piece_size):
             length += len(piece)
-            self._bam_writer.write(piece)
+            self._bam_to_sam.write(piece)
         if CONTENT_LENGTH in response.headers:
             content_length = int(response.headers[CONTENT_LENGTH])
             if content_length != length:
@@ -143,7 +146,8 @@ class HtsgetReader():
         description = split[0]
         data = base64.b64decode(split[1])
         logging.debug("handle_data_uri({}, length={})".format(description, len(data)))
-        self._bam_writer.write(data)
+        self._bam_to_sam.write(data)
+
 
 def get_ticket_request_url(
         parsed_url, fmt=None, reference_name=None, reference_md5=None,

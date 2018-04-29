@@ -4,9 +4,10 @@ from collections import OrderedDict
 import csv
 import io
 import math
-from Queue import Queue, Empty
+from queue import Queue, Empty
 from subprocess import Popen, PIPE
 from threading import Thread
+import time
 
 
 class IndexBatcher():
@@ -276,25 +277,69 @@ class ProcessWriterReader(Thread):
             self.reader = io.TextIOWrapper(self.reader)
         self.queue = Queue()
         
-        def read_into_queue(reader, queue):
-            while True:
-                line = reader.readline()
+        def read_into_queue(proc):
+            while proc.reader:
+                print('reading line')
+                line = proc.reader.readline()
+                print('line')
                 if line:
-                    queue.put(line)
+                    proc.queue.put(line)
                 else:
-                    # Signal that we've reached EOF
-                    queue.put(None)
-                    return
+                    proc.reader = None
+                    break
+            
+            # Signal that there's no more to read
+            proc.queue.put(None)
         
-        super().__init__(target=read_into_queue, args=(self.reader, self.queue))
+        super().__init__(target=read_into_queue, args=(self,))
         self.daemon = True
         self.start()
     
+    def can_write(self):
+        return self.is_alive() and self.writer is not None
+    
     def write(self, data):
+        print('write {}'.format(len(data)))
+        if not self.can_write():
+            raise RuntimeError("Process already terminated")
         self.writer.write(data)
     
+    def flush(self):
+        print('flush')
+        if not self.can_write():
+            raise RuntimeError("Process already terminated")
+        self.writer.flush()
+    
+    def finish(self):
+        if self.can_write():
+            self.flush()
+            self.writer.close()
+            self.writer = None
+    
+    def can_read(self):
+        return self.is_alive() and self.reader is not None
+    
     def readline(self):
-        return self.queue.get()
+        while self.can_read():
+            print('reading')
+            if not self.queue.empty():
+                line = self.queue.get()
+                if line is None:
+                    self.reader = None
+                print('read {}'.format(x))
+                return line
+            time.sleep(1)
+        return None
+    
+    def terminate(self, timeout=10):
+        if self.can_write():
+            self.finish()
+        if self.can_read():
+            self.reader = None
+        self.join(timeout)
+        if self.is_alive():
+            raise RuntimeError("ProcessWriterReader did not terminate")
+
 
 def _init_progress(progress):
     if progress is True:
