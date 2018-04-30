@@ -8,7 +8,6 @@ from pokrok import progress_iter
 from queue import Queue
 from subprocess import Popen, PIPE
 from threading import Thread
-import time
 from typing import Iterator, Tuple, List, Sequence, Dict, Union, Optional, cast
 from xphyle import xopen, open_
 from xphyle.types import ModeArg

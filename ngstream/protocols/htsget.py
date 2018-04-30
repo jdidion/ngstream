@@ -361,7 +361,7 @@ def htsget_dump(
 
 def htsget_dump_cli():
     parser = ArgumentParser(description="""
-Download reads from an htsget URL to file(s) or fifo(s).
+Download reads from an Htsget URL to file(s) or fifo(s).
 
 Currently this supports two modes - whole-genome or single region. The region 
 (specified with -r/--region) can be a whole chromosome (just the chromosome name) or a 
@@ -369,6 +369,9 @@ sub-chromosome region (chr:start-end).
 
 Currently this requires a chromosome sizes file for the reference genome if running in
 single region mode.
+
+Note that Htsget does not provide mechanisms for 1) discovering identifiers, or
+2) determining the reference genome to which a read set was aligned.
 """)
     parser.add_argument(
         '-f', '--fifos', action='store_true', default=False,
@@ -406,7 +409,7 @@ single region mode.
     parser.add_argument(
         '--noprogress', dest='progress', action='store_false',
         default=True, help="Do not show a progress bar")
-    parser.add_argument('accn', help="SRA Accession.")
+    parser.add_argument('url', help="Htsget URL.")
     args = parser.parse_args()
 
     if args.fifos and args.prefix is None:
@@ -431,7 +434,7 @@ single region mode.
     fifos = args.buffer if args.buffer else args.fifos
 
     result = htsget_dump(
-        args.accn, reference=reference, prefix=args.prefix,
+        args.urls, reference=reference, prefix=args.prefix,
         compression=args.compression, fifos=fifos, item_limit=args.max_reads,
         chromosomes=chromosomes, chromosome_starts=starts, chromosome_stops=stops,
         batch_size=args.batch_size, progress=args.progress

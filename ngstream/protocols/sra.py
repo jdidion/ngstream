@@ -30,16 +30,16 @@ class SraProtocol(Protocol):
 
     Examples:
         # Use as context manager
-        with SraReader(accn, batch_size=1000) as reader:
+        with SraReader(accession, batch_size=1000) as reader:
             for reads in reader:
                 print("\n".join(str(read) for read in reads))
 
         # Use manually
         batch_iterator = Batcher(batch_size=1000)
-        reader = SraReader(accn, batch_iterator)
+        reader = SraReader(accession, batch_iterator)
         reader.start()
         print("Reading {} reads from SRA accession {} ({})".format(
-            reader.read_count, reader.accn, reader.run_name))
+            reader.read_count, reader.accession, reader.run_name))
         try:
             for reads in reader:
                 print("\n".join(str(read) for read in reads))
@@ -75,7 +75,7 @@ class SraProtocol(Protocol):
     def start(self):
         """Open the read collection.
         """
-        self.read_collection = NGS.openReadCollection(self.accn)
+        self.read_collection = NGS.openReadCollection(self.accession)
         self.run_name = self.read_collection.getName()
         self._read_count = self.read_collection.getReadCount()
         # grab the first read use it to determine whether the dataset
@@ -160,12 +160,13 @@ def sra_reads(
 
 
 def sra_dump(
-        accn: str, prefix: Optional[str] = None, compression: Union[bool, str] = True,
-        fifos: bool = False, batch_size: int = 1000, **batcher_args) -> dict:
+        accession: str, prefix: Optional[str] = None,
+        compression: Union[bool, str] = True, fifos: bool = False,
+        batch_size: int = 1000, **batcher_args) -> dict:
     """Convenience method to stream reads from SRA to FASTQ files.
 
     Args:
-        accn: SRA accession.
+        accession: SRA accession.
         prefix: Output file prefix. If None, the accession is used.
         compression: Whether to compress the output files (bool), or the name of
              a compression scheme (e.g. 'gz', 'bz2', or 'xz').
@@ -180,7 +181,7 @@ def sra_dump(
         A dict containing the output file names ('file1' and 'file2'),
         and read_count.
     """
-    sra_reader = SraProtocol(accn, batch_size=batch_size, **batcher_args)
+    sra_reader = SraProtocol(accession, batch_size=batch_size, **batcher_args)
     return dump(sra_reader, prefix, compression, fifos, batch_size)
 
 
@@ -231,7 +232,7 @@ def sra_dump_cli():
     parser.add_argument(
         '--noprogress', dest='progress', action='store_false',
         default=True, help="Do not show a progress bar")
-    parser.add_argument('accn', help="SRA Accession.")
+    parser.add_argument('accession', help="SRA Accession.")
     args = parser.parse_args()
 
     if args.fifos and args.prefix is None:
@@ -251,7 +252,7 @@ def sra_dump_cli():
     fifos = args.buffer if args.buffer else args.fifos
 
     result = sra_dump(
-        args.accn, prefix=args.prefix, compression=args.compression,
+        args.accession, prefix=args.prefix, compression=args.compression,
         fifos=fifos, item_limit=args.max_reads,
         batch_start=batch_start, batch_stop=batch_stop, batch_size=batch_size,
         batch_step=batch_step, progress=args.progress

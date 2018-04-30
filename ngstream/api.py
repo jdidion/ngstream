@@ -19,7 +19,7 @@ class Protocol(metaclass=ABCMeta):
     @property
     @abstractmethod
     def name(self) -> str:
-        """The name of the dataset being streamed (may be the same as accn.
+        """The name of the dataset being streamed (may be the same as accession.
         """
         pass
 
