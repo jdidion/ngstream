@@ -434,7 +434,7 @@ Note that Htsget does not provide mechanisms for 1) discovering identifiers, or
     fifos = args.buffer if args.buffer else args.fifos
 
     result = htsget_dump(
-        args.urls, reference=reference, prefix=args.prefix,
+        args.url, reference=reference, prefix=args.prefix,
         compression=args.compression, fifos=fifos, item_limit=args.max_reads,
         chromosomes=chromosomes, chromosome_starts=starts, chromosome_stops=stops,
         batch_size=args.batch_size, progress=args.progress
