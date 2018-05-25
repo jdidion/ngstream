@@ -4,12 +4,11 @@
 from io import StringIO
 from pathlib import Path
 from subprocess import Popen, PIPE
-from typing import Tuple, Optional
+from typing import Tuple, Union, Optional
 from xphyle import xopen
-from ngstream.api import Writer, writer
+from ngstream.api import Writer
 
 
-@writer('buffer')
 class BufferWriter(Writer):
     """StringWriter that writes contents to an in-memory buffer.
     """
@@ -36,7 +35,6 @@ class BufferWriter(Writer):
             self._values[1] = self._buffers[1].getvalue()
 
 
-@writer('fifo')
 class FifoWriter(Writer):
     """StringWriter that opens and writes to a pair of FIFOs in a non-blocking
     way. Each FIFO is written to by opening a subprocess in which stdin is
@@ -50,13 +48,16 @@ class FifoWriter(Writer):
         kwargs: Additional arguments to pass to Popen
     """
     def __init__(
-            self, file1: Path, file2: Optional[Path] = None, buffer='pv -B ', **kwargs):
+            self, file1: Path, file2: Optional[Path] = None, buffer='pv -B ',
+            compression: Optional[Union[bool, str]] = None, **kwargs):
         super().__init__(file2 is not None)
         self.fifo1 = self._make_fifo(buffer, file1, **kwargs)
         if self.paired:
-            self.fifo2 = self._make_fifo(buffer, file2, **kwargs)
+            self.fifo2 = FifoWriter._make_fifo(buffer, file2, **kwargs)
 
-    def _make_fifo(self, buffer: str, fifo: Path, **kwargs) -> Popen:
+    @staticmethod
+    def _make_fifo(buffer: str, fifo: Path, **kwargs) -> Popen:
+        # TODO: use xphyle process instead
         return Popen(
             f'{buffer} > {fifo}', stdin=PIPE, shell=True, universal_newlines=True,
             **kwargs)
@@ -75,13 +76,12 @@ class FifoWriter(Writer):
             close_fifo(self.fifo2)
 
 
-@writer('file')
 class FileWriter(Writer):
     """StringWriter that opens and writes to a pair of files.
 
     Args:
-        file1: Path to the read1 file
-        file2: Path to the read2 file
+        file1: Path to the read1 file.
+        file2: Path to the read2 file.
         kwargs: Additional arguments to pass to the ``open`` call.
     """
     def __init__(self, file1: Path, file2: Optional[Path] = None, **kwargs):

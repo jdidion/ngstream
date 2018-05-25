@@ -2,10 +2,10 @@ from abc import ABCMeta, abstractmethod
 import copy
 import os
 from typing import List, Optional
-from ngstream.api import FileFormat, Writer, NGSRead, file_format
+from ngstream.api import FileFormat, Writer, NGSRead
 
 
-class BatchWriter(FileFormat, metaclass=ABCMeta):
+class BatchFileFormat(FileFormat, metaclass=ABCMeta):
     """Wrapper for a string writer (e.g. FifoWriter) that improves performance
     by buffering a set number of reads and sending them as a single call to the
     string writer.
@@ -99,8 +99,7 @@ class BatchWriter(FileFormat, metaclass=ABCMeta):
         self.writer.close()
 
 
-@file_format('fastq')
-class FastqWriter(BatchWriter):
+class FastqFileFormat(BatchFileFormat):
     """BatchWriter implementation for FASTQ format.
     """
     def __init__(self, writer: Writer, batch_size: int = 1000):

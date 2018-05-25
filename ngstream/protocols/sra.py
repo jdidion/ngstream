@@ -6,17 +6,13 @@ TODO: [JD] Incorporate Popen hacks from
 """
 from argparse import ArgumentParser
 import json
-import logging
-import sys
-from typing import Iterator, Tuple, Union, Optional
+from typing import Iterator, Tuple, Optional
 from ngs import NGS
 from ngs.Read import Read
-from ngstream.api import Protocol, NGSRead, reader
+from ngstream.api import Protocol, NGSRead, dump
 from ngstream.utils import IndexBatcher, IndexBatch
-from ngstream.protocols import dump
 
 
-@reader('sra')
 class SraProtocol(Protocol):
     """Iterates through a read collection for a given accession number using
     the ngs-lib python bindings.
@@ -160,29 +156,31 @@ def sra_reads(
 
 
 def sra_dump(
-        accession: str, prefix: Optional[str] = None,
-        compression: Union[bool, str] = True, fifos: bool = False,
-        batch_size: int = 1000, **batcher_args) -> dict:
+        accession: str, output_prefix: Optional[str] = None,
+        output_type: str = 'file', output_format: str = 'fastq',
+        protocol_kwargs: Optional[dict] = None, writer_kwargs: Optional[dict] = None,
+        format_kwargs: Optional[dict] = None) -> dict:
     """Convenience method to stream reads from SRA to FASTQ files.
 
     Args:
         accession: SRA accession.
-        prefix: Output file prefix. If None, the accession is used.
-        compression: Whether to compress the output files (bool), or the name of
-             a compression scheme (e.g. 'gz', 'bz2', or 'xz').
-        fifos: Whether output files should be FIFOs. If True, `compression` is
-            ignored, and 'pv' must be callable. Can also be a string specifying
-            the program to use for buffering instead of pv.
-        batch_size:
-        batcher_args: Specify arguments to the :class:`srastream.utils.Batcher`
-            that will be used for batch iteration.
+        output_prefix: Output file prefix. If None, the accession is used.
+        output_type: Type of output ('buffer', 'file', or 'fifo').
+        output_format: Format of the output file(s).
+        protocol_kwargs: Additional keyword arguments to pass to the HtsgetProtocol
+            constructor.
+        writer_kwargs: Additional keyword arguments to pass to the Writer constructor.
+        format_kwargs: Additional keyword arguments to pass to the FileFormat
+            constructor.
 
     Returns:
         A dict containing the output file names ('file1' and 'file2'),
         and read_count.
     """
-    sra_reader = SraProtocol(accession, batch_size=batch_size, **batcher_args)
-    return dump(sra_reader, prefix, compression, fifos, batch_size)
+    protocol = SraProtocol(accession, **(protocol_kwargs or {}))
+    return dump(
+        protocol, output_prefix, output_type, output_format, writer_kwargs,
+        format_kwargs)
 
 
 def sra_dump_cli():
@@ -249,13 +247,19 @@ def sra_dump_cli():
         batch_size = args.batch_size
         batch_step = args.batch_step
 
-    fifos = args.buffer if args.buffer else args.fifos
+    protocol_kwargs = dict(
+        item_limit=args.max_reads, batch_start=batch_start, batch_stop=batch_stop,
+        batch_size=batch_size, batch_step=batch_step, progress=args.progress
+    )
+
+    writer_kwargs = dict(compression=args.compression)
+    if args.buffer:
+        writer_kwargs['buffer'] = args.buffer
 
     result = sra_dump(
-        args.accession, prefix=args.prefix, compression=args.compression,
-        fifos=fifos, item_limit=args.max_reads,
-        batch_start=batch_start, batch_stop=batch_stop, batch_size=batch_size,
-        batch_step=batch_step, progress=args.progress
+        args.accession, output_prefix=args.prefix,
+        output_type='fifo' if args.fifos or args.buffer else 'file',
+        protocol_kwargs=protocol_kwargs, writer_kwargs=writer_kwargs
     )
 
     if args.json:

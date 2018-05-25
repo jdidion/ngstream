@@ -20,8 +20,7 @@ from urllib.parse import ParseResult, parse_qs, urlencode, urlunparse
 from xphyle import parse_url
 from xphyle.utils import read_delimited_as_dict
 
-from ngstream.api import Protocol
-from ngstream.protocols import dump
+from ngstream.api import Protocol, dump
 from ngstream.utils import (
     CoordinateBatcher, CoordBatch, GenomeReference, ProcessWriterReader)
 
@@ -37,7 +36,7 @@ class ContentLengthMismatchError(Exception):
     """
 
 
-class HtsgetReader(Protocol):
+class HtsgetProtocol(Protocol):
     """Stream reads from a server that supports the Htsget protocol.
     """
     def __init__(
@@ -133,7 +132,7 @@ class HtsgetReader(Protocol):
                 break
             flags = int(read[1])
             paired = (flags & 1)
-            if not paired:
+            if self._paired is False or not paired:
                 yield [read]
             else:
                 self._paired = True
@@ -334,29 +333,32 @@ def httpget(*args, **kwargs):
 
 
 def htsget_dump(
-        url: str, reference: GenomeReference, prefix: str = None,
-        compression: Union[bool, str] = True, fifos: bool = False,
-        batch_size: int = 1000, **reader_args) -> dict:
+        url: str, reference: GenomeReference, output_prefix: Optional[str] = None,
+        output_type: str = 'file', output_format: str = 'fastq',
+        protocol_kwargs: Optional[dict] = None, writer_kwargs: Optional[dict] = None,
+        format_kwargs: Optional[dict] = None) -> dict:
     """Convenience method to stream reads from SRA to FASTQ files.
 
     Args:
         url: Htsget URL.
         reference: The reference genome.
-        prefix: Output file prefix. If None, the accession is used.
-        compression: Whether to compress the output files (bool), or the name of
-             a compression scheme (e.g. 'gz', 'bz2', or 'xz').
-        fifos: Whether output files should be FIFOs. If True, `compression` is
-            ignored, and 'pv' must be callable. Can also be a string specifying
-            the program to use for buffering instead of pv.
-        fifos: Whether to use FIFOs for writing data.
-        batch_size:
+        output_prefix: Output file prefix. If None, the accession is used.
+        output_type: Type of output ('buffer', 'file', or 'fifo').
+        output_format: Format of the output file(s).
+        protocol_kwargs: Additional keyword arguments to pass to the HtsgetProtocol
+            constructor.
+        writer_kwargs: Additional keyword arguments to pass to the Writer constructor.
+        format_kwargs: Additional keyword arguments to pass to the FileFormat
+            constructor.
 
     Returns:
         A dict containing the output file names ('file1' and 'file2'),
         and read_count.
     """
-    reader = HtsgetReader(url, reference, **reader_args)
-    return dump(reader, prefix, compression, fifos, batch_size)
+    protocol = HtsgetProtocol(url, reference, **(protocol_kwargs or {}))
+    return dump(
+        protocol, output_prefix, output_type, output_format, writer_kwargs,
+        format_kwargs)
 
 
 def htsget_dump_cli():
@@ -378,8 +380,8 @@ Note that Htsget does not provide mechanisms for 1) discovering identifiers, or
         help="Create FIFOs rather than regular files")
     parser.add_argument(
         '-g', '--reference',
-        help="Path to chromosome sizes file that defines the reference genome of the "
-             "reads being downloaded")
+        help="Reference genome of the  reads being downloaded, specified as "
+             "<name>=<path to chromosome sizes file>.")
     parser.add_argument(
         '-j', '--json', default=None,
         help="JSON file to write with dump results.")
@@ -419,7 +421,8 @@ Note that Htsget does not provide mechanisms for 1) discovering identifiers, or
 
     reference = None
     if args.reference:
-        reference = GenomeReference(read_delimited_as_dict(args.reference))
+        ref_name, ref_path = args.reference.split('=')
+        reference = GenomeReference(ref_name, read_delimited_as_dict(ref_path))
 
     chromosomes = None
     starts = None
@@ -431,13 +434,19 @@ Note that Htsget does not provide mechanisms for 1) discovering identifiers, or
             starts = [int(start)]
             stops = [int(end)]
 
-    fifos = args.buffer if args.buffer else args.fifos
+    protocol_kwargs = dict(
+        item_limit=args.max_reads, chromosomes=chromosomes, chromosome_starts=starts,
+        chromosome_stops=stops, batch_size=args.batch_size, progress=args.progress
+    )
+
+    writer_kwargs = dict(compression=args.compression)
+    if args.buffer:
+        writer_kwargs['buffer'] = args.buffer
 
     result = htsget_dump(
-        args.url, reference=reference, prefix=args.prefix,
-        compression=args.compression, fifos=fifos, item_limit=args.max_reads,
-        chromosomes=chromosomes, chromosome_starts=starts, chromosome_stops=stops,
-        batch_size=args.batch_size, progress=args.progress
+        args.url, reference=reference, output_prefix=args.prefix,
+        output_type='fifo' if args.fifos or args.buffer else 'file',
+        protocol_kwargs=protocol_kwargs, writer_kwargs=writer_kwargs
     )
 
     if args.json:

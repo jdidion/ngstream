@@ -166,7 +166,7 @@ class GenomeReference:
         self.name = name
         self.md5 = md5
         if isinstance(path_or_dict, Path):
-            self.chromosomes = OrderedDict()
+            self.chromosomes: Dict[str, int] = OrderedDict()
             with open_(cast(Path, path_or_dict), 'rt') as inp:
                 for chrom, size in csv.reader(inp, delimiter="\t"):
                     self.chromosomes[chrom] = int(size)

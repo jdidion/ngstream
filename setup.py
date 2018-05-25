@@ -18,17 +18,28 @@ setup(
     author_email='john.didion@nih.gov',
     license='Public Domain',
     packages=['ngstream'],
-    scripts=['bin/sra_dump'],
     install_requires=[
         'requests',
         'pokrok',
-        'xphyle'
+        'xphyle>3.9.9'
     ],
-    tests_require=['pytest', 'pytest-cov'],
+    tests_require=['pytest', 'pytest-cov', 'pytest-datadir'],
     entry_points={
         'console_scripts': [
             'sra_dump=ngstream.protocols.sra:sra_dump_cli',
             'htsget_dump=ngstream.protocols.htsget:htsget_dump_cli'
+        ],
+        'ngstream.protocol': [
+            'sra=ngstream.protocols.sra:SraProtocol',
+            'htsget=ngstream.protocols.htsget:HtsgetProtocol'
+        ],
+        'ngstream.writer': [
+            'buffer=ngstream.writers:BufferWriter',
+            'file=ngstream.writers:FileWriter',
+            'fifo=ngstream.writers.FifoWriter'
+        ],
+        'ngstream.file_format': [
+            'fastq=ngstream.formats:FastqFileFormat'
         ]
     },
     classifiers=[
