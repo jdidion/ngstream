@@ -6,14 +6,77 @@ TODO: [JD] Incorporate Popen hacks from
 """
 from argparse import ArgumentParser
 import json
-from typing import Iterator, Tuple, Optional
+from typing import Iterator, Callable, Union, Generic
 from ngs import NGS
 from ngs.Read import Read
-from ngstream.api import Protocol, NGSRead, dump
+from ngstream.api import Protocol, Record, RecordType, Fragment, dump_fastq
 from ngstream.utils import IndexBatcher, IndexBatch
 
 
-class SraProtocol(Protocol):
+class DefaultSraRecord(Record):
+    def __init__(self, name: str, sequence: str, qualities: str):
+        self._name = name
+        self._sequence = sequence
+        self._qualities = qualities
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    @property
+    def sequence(self) -> str:
+        return self._sequence
+
+    @property
+    def qualities(self) -> str:
+        return self._qualities
+
+
+def sra_reads(
+        read: Read, paired: bool = None, expected_fragments: int = None,
+        record_class: Callable[..., RecordType] = DefaultSraRecord
+        ) -> Union[RecordType, Fragment[RecordType]]:
+    """Creates Records from the current read of an ngs.ReadIterator. Typically the
+    fragment has one or two reads sfor single- and paired-end reads, respectively.
+
+    Args:
+        read: an NGS.Read instance.
+        paired: Whether this is paired-end data.
+        expected_fragments: The number of fragments expected for this read. If
+            None, fragment number is not validated.
+        record_class: Type of Record to create.
+
+    Returns:
+        The tuple (frag1, frag2...), where each fragment is a tuple
+        (read_name, sequence, qualities).
+    """
+    read_name = read.getReadName()
+    num_fragments = read.getNumFragments()
+    if expected_fragments and num_fragments != expected_fragments:
+        raise Exception(
+            f"Read {read_name} has fewer than {expected_fragments} fragments")
+
+    # TODO: extract other useful information such as read group
+    # read_group = read.getReadGroup()
+
+    def next_frag() -> RecordType:
+        """Create (name, bases, qualities) tuple from the next fragment.
+        """
+        read.nextFragment()
+        if paired and not read.isPaired():
+            raise Exception("Read {} is not paired".format(read_name))
+        return record_class(
+            read_name,
+            read.getFragmentBases(),
+            read.getFragmentQualities())
+
+    if paired:
+        return Fragment[RecordType](*(next_frag() for _ in range(num_fragments)))
+    else:
+        return next_frag()
+
+
+class SraProtocol(Generic[RecordType], Protocol[RecordType]):
     """Iterates through a read collection for a given accession number using
     the ngs-lib python bindings.
 
@@ -21,6 +84,8 @@ class SraProtocol(Protocol):
         accession: The accession number
         batch_iterator: An iterator over indexes of batches to fetch. Typically,
             this is created using a :class:`srastream.utils.Batcher`.
+        record_factory: Callable that takes a NGS.Read instance and returns a tuple of
+            Record instances.
         batcher_args: If `batch_iterator` is None, these arguments are used to
             create a Batcher.
 
@@ -44,8 +109,11 @@ class SraProtocol(Protocol):
     """
     def __init__(
             self, accession: str, batch_iterator: Iterator[IndexBatch] = None,
+            record_factory:
+            Callable[[Read], Union[RecordType, Fragment[RecordType]]] = sra_reads,
             **batcher_args):
         self._accession = accession
+        self.record_factory = record_factory
         self.batch_iterator = batch_iterator or IndexBatcher(**batcher_args)
         self.read_collection = None
         self.run_name = None
@@ -59,14 +127,14 @@ class SraProtocol(Protocol):
     def __exit__(self, exception_type, exception_value, traceback):
         self.finish()
 
-    def __iter__(self) -> Iterator[NGSRead]:
+    def __iter__(self) -> Iterator[Union[RecordType, Fragment[RecordType]]]:
         if self.read_collection is None:
             raise ValueError("Must call start() first")
         for _, start, size in self.batch_iterator(total=self.read_count):
             with self.read_collection.getReadRange(start + 1, size, Read.all) as read:
                 for _ in range(size):
                     read.nextRead()
-                    yield sra_reads(read)
+                    yield self.record_factory(read)
 
     def start(self):
         """Open the read collection.
@@ -115,83 +183,15 @@ class SraProtocol(Protocol):
         return getattr(self.read_collection, name)
 
 
-def sra_reads(
-        read, paired: bool = None, expected_fragments: int = None
-        ) -> Tuple[NGSRead, ...]:
-    """Creates sequence of (name, sequence, qualities) tuples from the current
-    read of an ngs.ReadIterator. Typically the sequence has one or two tuples
-    for single- and paired-end reads, respectively.
-
-    Args:
-        read: an NGS.Read instance.
-        paired: Whether this is paired-end data.
-        expected_fragments: The number of fragments expected for this read. If
-            None, fragment number is not validated.
-
-    Returns:
-        The tuple (frag1, frag2...), where each fragment is a tuple
-        (read_name, sequence, qualities).
-    """
-    read_name = read.getReadName()
-    num_fragments = read.getNumFragments()
-    if expected_fragments and num_fragments != expected_fragments:
-        raise Exception("Read {} has fewer than {} fragments".format(
-            read_name, expected_fragments))
-
-    # TODO: extract other useful information such as read group
-    # read_group = read.getReadGroup()
-
-    def next_frag():
-        """Create (name, bases, qualities) tuple from the next fragment.
-        """
-        read.nextFragment()
-        if paired and not read.isPaired():
-            raise Exception("Read {} is not paired".format(read_name))
-        return (
-            read_name,
-            read.getFragmentBases(),
-            read.getFragmentQualities())
-
-    return tuple(next_frag() for _ in range(num_fragments))
-
-
-def sra_dump(
-        accession: str, output_prefix: Optional[str] = None,
-        output_type: str = 'file', output_format: str = 'fastq',
-        protocol_kwargs: Optional[dict] = None, writer_kwargs: Optional[dict] = None,
-        format_kwargs: Optional[dict] = None) -> dict:
-    """Convenience method to stream reads from SRA to FASTQ files.
-
-    Args:
-        accession: SRA accession.
-        output_prefix: Output file prefix. If None, the accession is used.
-        output_type: Type of output ('buffer', 'file', or 'fifo').
-        output_format: Format of the output file(s).
-        protocol_kwargs: Additional keyword arguments to pass to the HtsgetProtocol
-            constructor.
-        writer_kwargs: Additional keyword arguments to pass to the Writer constructor.
-        format_kwargs: Additional keyword arguments to pass to the FileFormat
-            constructor.
-
-    Returns:
-        A dict containing the output file names ('file1' and 'file2'),
-        and read_count.
-    """
-    protocol = SraProtocol(accession, **(protocol_kwargs or {}))
-    return dump(
-        protocol, output_prefix, output_type, output_format, writer_kwargs,
-        format_kwargs)
-
-
 def sra_dump_cli():
     parser = ArgumentParser()
-    parser.add_argument(
-        '-f', '--fifos', action='store_true', default=False,
-        help="Create FIFOs rather than regular files")
     parser.add_argument(
         '-F', '--first-read',
         type=int, default=0, metavar="N",
         help="The first read to stream")
+    parser.add_argument(
+        '-i', '--interleaved', action='store_true', default=False,
+        help="Write paired output to a single, interleaved FASTQ file.")
     parser.add_argument(
         '-j', '--json', default=None,
         help="JSON file to write with dump results.")
@@ -222,9 +222,6 @@ def sra_dump_cli():
         default=None, metavar="FIRST:LAST:SIZE:STEP",
         help="More susccint way to specify -F -L -S -T")
     parser.add_argument(
-        '--buffer',
-        default='pv -q -B 1M', help="Buffer command for writing FIFOs.")
-    parser.add_argument(
         '--nocompression', dest='compression', action='store_false',
         default=True, help="Do not gzip-compress output files")
     parser.add_argument(
@@ -232,11 +229,6 @@ def sra_dump_cli():
         default=True, help="Do not show a progress bar")
     parser.add_argument('accession', help="SRA Accession.")
     args = parser.parse_args()
-
-    if args.fifos and args.prefix is None:
-        parser.error(
-            '--fifos should be used with --prefix to generate FIFOs that will be read '
-            'from as the data is downloaded.')
 
     if args.slice:
         batch_start, batch_stop, batch_size, batch_step = (
@@ -247,21 +239,23 @@ def sra_dump_cli():
         batch_size = args.batch_size
         batch_step = args.batch_step
 
-    protocol_kwargs = dict(
-        item_limit=args.max_reads, batch_start=batch_start, batch_stop=batch_stop,
-        batch_size=batch_size, batch_step=batch_step, progress=args.progress
+    sra = SraProtocol(
+        args.accession, item_limit=args.max_reads, batch_start=batch_start,
+        batch_stop=batch_stop, batch_size=batch_size, batch_step=batch_step,
+        progress=args.progress
     )
 
-    writer_kwargs = dict(compression=args.compression)
-    if args.buffer:
-        writer_kwargs['buffer'] = args.buffer
-
-    result = sra_dump(
-        args.accession, output_prefix=args.prefix,
-        output_type='fifo' if args.fifos or args.buffer else 'file',
-        protocol_kwargs=protocol_kwargs, writer_kwargs=writer_kwargs
+    files = dump_fastq(
+        sra, args.prefix, args.output_mode, compression=args.compression,
+        interleaved=args.interleaved
     )
+
+    summary = dict(file=files, read_count=sra.read_count)
 
     if args.json:
         with open(args.json, 'wt') as out:
-            json.dump(result, out)
+            json.dump(summary, out)
+    else:
+        print(
+            f"Dumped {summary['read_count']} reads from {args.accession} to "
+            f"{summary['files']}.")

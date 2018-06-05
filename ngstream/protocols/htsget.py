@@ -4,11 +4,14 @@ A substantial amount of this code was adapted from the htsget project, and
 is included here under the Apache 2.0 license:
 https://github.com/jeromekelleher/htsget.
 """
+from abc import ABCMeta, abstractmethod
 from argparse import ArgumentParser
 import base64
+import io
 import json
 import logging
 import os
+from pathlib import Path
 from queue import Queue, Empty
 import re
 import requests
@@ -17,12 +20,12 @@ import time
 from typing import Iterator, Sequence, Union, Optional
 from urllib.parse import ParseResult, parse_qs, urlencode, urlunparse
 
+import pysam
 from xphyle import parse_url
 from xphyle.utils import read_delimited_as_dict
 
-from ngstream.api import Protocol, dump
-from ngstream.utils import (
-    CoordinateBatcher, CoordBatch, GenomeReference, ProcessWriterReader)
+from ngstream.api import Protocol, Record, Fragment, dump_fastq
+from ngstream.utils import CoordinateBatcher, CoordBatch, GenomeReference
 
 
 CONTENT_LENGTH = "Content-Length"
@@ -36,136 +39,55 @@ class ContentLengthMismatchError(Exception):
     """
 
 
-class HtsgetProtocol(Protocol):
-    """Stream reads from a server that supports the Htsget protocol.
-    """
-    def __init__(
-            self, url: str, reference: Optional[GenomeReference] = None,
-            batch_iterator: Optional[Iterator[CoordBatch]] = None,
-            paired: bool = False, data_format: str = 'BAM',
-            tags: Optional[Sequence[str]] = None,
-            notags: Optional[Sequence[str]] = None,
-            bam_to_sam_command: Union[str, Sequence[str]] = ('samtools', 'view', '-'),
-            timeout: int = 10, **batcher_args):
-        self.url = url
-        self.parsed_url = parse_url(url)
-        if self.parsed_url is None:
-            raise ValueError(f"Invalid URL: {url}")
-        self.reference = None
-        self.md5 = None
-        self.batch_iterator = batch_iterator
-        if reference:
-            self.reference = reference
-            self.md5 = reference.md5
-            if self.batch_iterator is None:
-                self.batch_iterator = CoordinateBatcher(
-                    reference=reference, **batcher_args)
-        self._paired = paired
-        self.data_format = data_format
-        self.tags = tags
-        self.notags = notags
-        self.timeout = timeout
-        self._read_count = None
-        self._frag_count = None
-        self._cache = {}
-        self._downloader = Downloader(bam_to_sam_command, timeout)
+class SamRecord(Record):
+    def __init__(self, record: pysam.AlignedSegment):
+        self.record = record
 
     @property
     def name(self) -> str:
-        return self.url
+        return self.record.query_name
 
     @property
-    def accession(self) -> str:
-        return os.path.basename(self.parsed_url.path)
+    def sequence(self) -> str:
+        return self.record.query_sequence
 
     @property
-    def paired(self) -> bool:
-        return self._paired
-
-    @property
-    def read_count(self) -> int:
-        return self._read_count
-
-    def start(self):
-        """Open a stream to samtools view for converting BAM/CRAM to SAM.
-        """
-        if not self._downloader or self._downloader.is_alive():
-            raise ValueError("Already called start()")
-        self._downloader.start()
-
-    def finish(self):
-        if self._downloader:
-            self._downloader.terminate()
-        self._downloader = None
-        self._cache = None
-
-    def __iter__(self):
-        if self.batch_iterator is None:
-            for reads in self.iter_reads_in_window():
-                yield tuple((read[0], read[9], read[10]) for read in reads)
-        else:
-            for _, chrom, start, stop in self.batch_iterator():
-                for reads in self.iter_reads_in_window(chrom, start, stop):
-                    yield tuple((read[0], read[9], read[10]) for read in reads)
-
-    def iter_reads_in_window(
-            self, chromosome: Optional[str] = None, start: Optional[int] = None,
-            stop: Optional[int] = None):
-        """Iterate over reads in the specified chromosome interval.
-        """
-        ticket_request_url = get_ticket_request_url(
-            self.parsed_url, data_format=self.data_format,
-            reference_name=chromosome, reference_md5=self.md5,
-            start=start, end=stop, tags=self.tags, notags=self.notags)
-
-        logging.debug(
-            "handle_ticket_request(url={})".format(ticket_request_url))
-        response = httpget(ticket_request_url, timeout=self.timeout)
-        ticket = response.json()
-
-        self.data_format = ticket.get("format", self.data_format)
-        self.md5 = ticket.get("md5", None)
-        self._downloader.download(ticket["urls"])
-
-        for read in self._downloader:
-            if read is None:
-                break
-            flags = int(read[1])
-            paired = (flags & 1)
-            if self._paired is False or not paired:
-                yield [read]
-            else:
-                self._paired = True
-                if read[0] in self._cache:
-                    other = self._cache.pop(read[0])
-                    if flags & 64:
-                        assert int(other[1]) & 128
-                        yield [read, other]
-                    else:
-                        assert int(other[1]) & 64
-                        yield [other, read]
-                else:
-                    self._cache[read[0]] = read
+    def qualities(self) -> str:
+        # HACK: qual is deprecated, but it avoids having to do the conversion back to
+        # a string from query_qualities.
+        return self.record.qual
 
 
-class Downloader(Thread):
+# TODO: max_retries?
+
+
+class HtsgetDownloader(Thread, metaclass=ABCMeta):
     """Thread that downloads BAM data from URLs, passes the data to 'samtools view' to
     convert to SAM (which runs in a second thread), and iterates over output records.
     """
     FINISH_SIGNAL = 0
     TERMINATE_SIGNAL = 1
 
-    def __init__(
-            self, bam_to_sam_command: Union[str, Sequence[str]], timeout: int,
-            **bam_to_sam_kwargs):
+    def __init__(self, timeout: int = 10):
         super().__init__()
         self.timeout = timeout
         self.daemon = True
         self._url_queue = Queue()
-        self._bam_to_sam = ProcessWriterReader(
-            bam_to_sam_command, 'b', 't', **bam_to_sam_kwargs)
 
     # external interface
+
+    def download_once(self, url_objects: Sequence[dict]) -> None:
+        """Start the downloader, download a single list of URLs, and finish.
+
+        Args:
+            url_objects:
+        """
+        self.start()
+        try:
+            self.download(url_objects)
+            self.finish(now=False)
+        except:
+            self.finish(now=True)
 
     def download(self, url_objects: Sequence[dict]) -> None:
         """Add a URL to the download queue.
@@ -176,16 +98,7 @@ class Downloader(Thread):
             self._url_queue.put(url_object)
         self._url_queue.put(None)
 
-    def __iter__(self) -> Iterator[Sequence[str]]:
-        if not (self.is_alive() and self._bam_to_sam.readable):
-            raise RuntimeError("Downloader not running")
-        while True:
-            line = self._bam_to_sam.readline()
-            if line is None:
-                raise StopIteration
-            yield line
-
-    def finish(self, now: bool = False):
+    def finish(self, now: bool = False) -> None:
         """Stop the Downloader.
 
         Args:
@@ -205,7 +118,7 @@ class Downloader(Thread):
                     self._url_queue.get_nowait()
                 except Empty:
                     break
-            self._url_queue.put(Downloader.TERMINATE_SIGNAL)
+            self._url_queue.put(HtsgetDownloader.TERMINATE_SIGNAL)
             try:
                 self.join(timeout=self.timeout)
             except TimeoutError:
@@ -214,22 +127,24 @@ class Downloader(Thread):
             if self.is_alive():
                 raise RuntimeError("Downloader did not terminate")
         else:
-            self._url_queue.put(Downloader.FINISH_SIGNAL)
+            self._url_queue.put(HtsgetDownloader.FINISH_SIGNAL)
             self.join()
 
     # thread interface
 
     def run(self):
-        signal = Downloader.FINISH_SIGNAL
+        signal = HtsgetDownloader.FINISH_SIGNAL
 
         try:
-            self._bam_to_sam.start()
+            self._init_thread()
 
             while True:
                 try:
                     url_object = self._url_queue.get_nowait()
                     if url_object in {
-                            Downloader.FINISH_SIGNAL, Downloader.TERMINATE_SIGNAL}:
+                        HtsgetDownloader.FINISH_SIGNAL,
+                        HtsgetDownloader.TERMINATE_SIGNAL
+                    }:
                         signal = url_object
                         break
                     url = parse_url(url_object['url'])
@@ -245,10 +160,10 @@ class Downloader(Thread):
                 except Empty:
                     time.sleep(1)
         finally:
-            if signal is Downloader.FINISH_SIGNAL:
-                self._bam_to_sam.finish()
+            if signal is HtsgetDownloader.FINISH_SIGNAL:
+                self._finish_thread()
             else:
-                self._bam_to_sam.terminate()
+                self._terminate_thread()
 
     def _handle_http_url(self, url: str, headers: str):
         logging.debug(f"handle_http_url(url={url}, headers={headers})")
@@ -257,7 +172,7 @@ class Downloader(Thread):
         piece_size = 65536
         for piece in response.iter_content(piece_size):
             length += len(piece)
-            self._bam_to_sam.write(piece)
+            self._write(piece)
         if CONTENT_LENGTH in response.headers:
             content_length = int(response.headers[CONTENT_LENGTH])
             if content_length != length:
@@ -270,7 +185,216 @@ class Downloader(Thread):
         description = split[0]
         data = base64.b64decode(split[1])
         logging.debug(f"handle_data_uri({description}, length={len(data)})")
-        self._bam_to_sam.write(data)
+        self._write(data)
+
+    @abstractmethod
+    def _write(self, data: bytes) -> None:
+        pass
+
+    @abstractmethod
+    def _init_thread(self):
+        pass
+
+    @abstractmethod
+    def _finish_thread(self) -> None:
+        pass
+
+    def _terminate_thread(self) -> None:
+        self._finish_thread()
+
+
+class BamHtsgetDownloader(HtsgetDownloader):
+    def __init__(self, output_file: Path, timeout: int = 10):
+        super().__init__(timeout)
+        self.byte_count = 0
+        self.output_file = output_file
+        self._output_fh = None
+
+    def _write(self, data: bytes) -> None:
+        self._output_fh.write(data)
+        self.byte_count += len(data)
+
+    def _init_thread(self):
+        self._output_fh = open(self.output_file, 'wb')
+
+    def _finish_thread(self) -> None:
+        self._output_fh.close()
+
+
+class SamHtsgetDownloader(HtsgetDownloader):
+    def __init__(self, timeout: int = 10, bufsize: Optional[int] = None):
+        super().__init__(timeout)
+        self.bufsize = bufsize
+        self.read_count = 0
+        self._pipe_reader, self._pipe_writer = os.pipe()
+        self._reader = io.open(self._pipe_reader, 'rb', self.bufsize)
+        self._sam = pysam.AlignmentFile(self._reader, 'r')
+        self.headers = None
+        self._writer = None
+
+    def _init_thread(self):
+        self._writer = io.open(self._pipe_writer, 'wb', self.bufsize)
+
+    def _finish_thread(self) -> None:
+        self._writer.close()
+
+    def _write(self, data: bytes) -> None:
+        self._writer.write(data)
+
+    def __iter__(self) -> Iterator[pysam.AlignedSegment]:
+        if not (self.is_alive() and self._sam):
+            raise RuntimeError("Downloader not running")
+        # We need to block until the first read is ready to make sure all the headers
+        # have been read
+        read = next(self._sam)
+        self.read_count += 1
+        self.headers = self._sam.headers
+        # yield the first read
+        yield read
+        # yield the remaining reads
+        for read in self._sam:
+            yield read
+            self.read_count += 1
+
+    def finish(self, now: bool = False) -> None:
+        try:
+            super().finish(now)
+        finally:
+            self._sam.close()
+            self._sam = None
+            self._reader.close()
+            self._reader = None
+
+
+class HtsgetProtocol(Protocol[SamRecord]):
+    """Stream reads from a server that supports the Htsget protocol.
+
+    Args:
+        url:
+        reference:
+        paired:
+        tags:
+        notags:
+        timeout:
+        batcher_args:
+    """
+    def __init__(
+            self, url: str, reference: Optional[GenomeReference] = None,
+            batch_iterator: Optional[Iterator[CoordBatch]] = None,
+            paired: bool = False, tags: Optional[Sequence[str]] = None,
+            notags: Optional[Sequence[str]] = None, timeout: int = 10,
+            **batcher_args):
+        self.url = url
+        self.parsed_url = parse_url(url)
+        if self.parsed_url is None:
+            raise ValueError(f"Invalid URL: {url}")
+        self.reference = None
+        self.md5 = None
+        self.batch_iterator = batch_iterator
+        if reference:
+            self.reference = reference
+            self.md5 = reference.md5
+            if self.batch_iterator is None:
+                self.batch_iterator = CoordinateBatcher(
+                    reference=reference, **batcher_args)
+        self._paired = paired
+        self.tags = tags
+        self.notags = notags
+        self.timeout = timeout
+        self.headers = None
+        self.data_format = 'bam'
+        self._downloader = None
+        self._read_count = 0
+        self._read_count = None
+        self._frag_count = None
+        self._cache = None if self._paired is False else {}
+
+    @property
+    def name(self) -> str:
+        return self.url
+
+    @property
+    def accession(self) -> str:
+        return os.path.basename(self.parsed_url.path)
+
+    @property
+    def paired(self) -> bool:
+        return self._paired
+
+    @property
+    def read_count(self):
+        if self._downloader:
+            return self._downloader.read_count
+        else:
+            return self._read_count
+
+    def start(self):
+        """Open a stream to samtools view for converting BAM/CRAM to SAM.
+        """
+        if self._downloader:
+            raise ValueError("Already called start()")
+        self._downloader = SamHtsgetDownloader(self.timeout)
+        self._downloader.start()
+        self._downloader.download(self.url)
+
+    def finish(self):
+        if self._downloader:
+            self._downloader.terminate()
+        self._read_count = self._downloader.read_count
+        self._downloader = None
+        self._cache = None
+
+    def __iter__(self) -> Iterator[Union[SamRecord, Fragment[SamRecord]]]:
+        if self.batch_iterator is None:
+            yield from self.iter_reads_in_window()
+        else:
+            for _, chrom, start, stop in self.batch_iterator():
+                yield from self.iter_reads_in_window(chrom, start, stop)
+
+    def iter_reads_in_window(
+            self, chromosome: Optional[str] = None, start: Optional[int] = None,
+            stop: Optional[int] = None
+            ) -> Iterator[Union[SamRecord, Fragment[SamRecord]]]:
+        """Iterate over reads in the specified chromosome interval.
+        """
+        ticket_request_url = get_ticket_request_url(
+            self.parsed_url, data_format=self.data_format,
+            reference_name=chromosome, reference_md5=self.md5,
+            start=start, end=stop, tags=self.tags, notags=self.notags)
+
+        logging.debug(
+            "handle_ticket_request(url={})".format(ticket_request_url))
+        response = httpget(ticket_request_url, timeout=self.timeout)
+        ticket = response.json()
+
+        self.data_format = ticket.get("format", self.data_format)
+        self.md5 = ticket.get("md5", None)
+        self._downloader.download(ticket["urls"])
+
+        for read in self._downloader:
+            if read is None:
+                break
+            paired = (read.is_paired & 1)
+            if self._paired is False or not paired:
+                yield SamRecord(read)
+            else:
+                self._paired = True
+                if read.query_name in self._cache:
+                    other = self._cache.pop(read.query_name)
+                    if read.is_read1 & 64:
+                        assert other.is_read2
+                        yield Fragment(
+                            SamRecord(read),
+                            SamRecord(other)
+                        )
+                    else:
+                        assert other.is_read1
+                        yield Fragment(
+                            SamRecord(other),
+                            SamRecord(read)
+                        )
+                else:
+                    self._cache[read.query_name] = read
 
 
 def get_ticket_request_url(
@@ -332,38 +456,9 @@ def httpget(*args, **kwargs):
     return response
 
 
-def htsget_dump(
-        url: str, reference: GenomeReference, output_prefix: Optional[str] = None,
-        output_type: str = 'file', output_format: str = 'fastq',
-        protocol_kwargs: Optional[dict] = None, writer_kwargs: Optional[dict] = None,
-        format_kwargs: Optional[dict] = None) -> dict:
-    """Convenience method to stream reads from SRA to FASTQ files.
-
-    Args:
-        url: Htsget URL.
-        reference: The reference genome.
-        output_prefix: Output file prefix. If None, the accession is used.
-        output_type: Type of output ('buffer', 'file', or 'fifo').
-        output_format: Format of the output file(s).
-        protocol_kwargs: Additional keyword arguments to pass to the HtsgetProtocol
-            constructor.
-        writer_kwargs: Additional keyword arguments to pass to the Writer constructor.
-        format_kwargs: Additional keyword arguments to pass to the FileFormat
-            constructor.
-
-    Returns:
-        A dict containing the output file names ('file1' and 'file2'),
-        and read_count.
-    """
-    protocol = HtsgetProtocol(url, reference, **(protocol_kwargs or {}))
-    return dump(
-        protocol, output_prefix, output_type, output_format, writer_kwargs,
-        format_kwargs)
-
-
 def htsget_dump_cli():
     parser = ArgumentParser(description="""
-Download reads from an Htsget URL to file(s) or fifo(s).
+Download reads from an Htsget URL to file(s).
 
 Currently this supports two modes - whole-genome or single region. The region 
 (specified with -r/--region) can be a whole chromosome (just the chromosome name) or a 
@@ -376,18 +471,23 @@ Note that Htsget does not provide mechanisms for 1) discovering identifiers, or
 2) determining the reference genome to which a read set was aligned.
 """)
     parser.add_argument(
-        '-f', '--fifos', action='store_true', default=False,
-        help="Create FIFOs rather than regular files")
-    parser.add_argument(
         '-g', '--reference',
-        help="Reference genome of the  reads being downloaded, specified as "
+        help="Reference genome of the reads being downloaded, specified as "
              "<name>=<path to chromosome sizes file>.")
+    parser.add_argument(
+        '-i', '--interleaved', action='store_true', default=False,
+        help="If '--output-format=fastq', Write paired output to a single, interleaved "
+             "FASTQ file.")
     parser.add_argument(
         '-j', '--json', default=None,
         help="JSON file to write with dump results.")
     parser.add_argument(
         '-M', '--max-reads', type=int, default=None,
         help="Maximum number of reads to fetch")
+    parser.add_argument(
+        '-o', '--output-format', default='bam', choices=('fastq', 'sam', 'bam', 'cram'),
+        help="Output format to dump. If 'fastq' or 'sam', data is downloaded in BAM "
+             "format and converted using pysam. Otherwise data is saved directly file.")
     parser.add_argument(
         '-O', '--output-mode',
         choices=('w', 'a'), default='w',
@@ -403,8 +503,9 @@ Note that Htsget does not provide mechanisms for 1) discovering identifiers, or
         type=int, default=1000, metavar="N",
         help="Number of reads to process in each batch.")
     parser.add_argument(
-        '--buffer',
-        default='pv -q -B 1M', help="Buffer command for writing FIFOs.")
+        '-t', '--timeout',
+        type=int, default=10, metavar='SEC',
+        help="Number of seconds to wait before timing out.")
     parser.add_argument(
         '--nocompression', dest='compression', action='store_false',
         default=True, help="Do not gzip-compress output files")
@@ -413,11 +514,6 @@ Note that Htsget does not provide mechanisms for 1) discovering identifiers, or
         default=True, help="Do not show a progress bar")
     parser.add_argument('url', help="Htsget URL.")
     args = parser.parse_args()
-
-    if args.fifos and args.prefix is None:
-        parser.error(
-            '--fifos should be used with --prefix to generate FIFOs that will be read '
-            'from as the data is downloaded.')
 
     reference = None
     if args.reference:
@@ -434,21 +530,126 @@ Note that Htsget does not provide mechanisms for 1) discovering identifiers, or
             starts = [int(start)]
             stops = [int(end)]
 
-    protocol_kwargs = dict(
-        item_limit=args.max_reads, chromosomes=chromosomes, chromosome_starts=starts,
-        chromosome_stops=stops, batch_size=args.batch_size, progress=args.progress
-    )
+    summary = {}
 
-    writer_kwargs = dict(compression=args.compression)
-    if args.buffer:
-        writer_kwargs['buffer'] = args.buffer
-
-    result = htsget_dump(
-        args.url, reference=reference, output_prefix=args.prefix,
-        output_type='fifo' if args.fifos or args.buffer else 'file',
-        protocol_kwargs=protocol_kwargs, writer_kwargs=writer_kwargs
-    )
+    if args.output_format in ('bam', 'cram'):
+        files = [f'{args.prefix}.{args.output_format}']
+        downloader = BamHtsgetDownloader(Path(files[0]), args.timeout)
+        downloader.download_once(args.url)
+        summary['files'] = files
+        summary['bytes_count'] = downloader.byte_count
+        metric = 'byte'
+    else:
+        htsget = HtsgetProtocol(
+            args.url,
+            reference=reference,
+            item_limit=args.max_reads,
+            chromosomes=chromosomes,
+            chromosome_starts=starts,
+            chromosome_stops=stops,
+            batch_size=args.batch_size,
+            timeout=args.timeout,
+            progress=args.progress,
+        )
+        if args.output_format == 'sam':
+            files = [f'{args.prefix}.sam']
+            headers = htsget.headers
+            with pysam.AlignmentFile(files[0], 'w', headers) as out:
+                for rec in htsget:
+                    out.write(rec.record)
+        else:
+            files = dump_fastq(
+                htsget,
+                args.prefix,
+                args.output_mode,
+                compression=args.compression,
+                interleaved=args.interleaved,
+            )
+        summary['files'] = files
+        summary['read_count'] = htsget.read_count
+        metric = 'read'
 
     if args.json:
         with open(args.json, 'wt') as out:
-            json.dump(result, out)
+            json.dump(summary, out)
+    else:
+        print(
+            f"Dumped {summary['{metric}_count']} {metric}s from {args.accession} to "
+            f"{summary['files']}.")
+
+
+# from queue import Queue
+# from threading import Thread
+# from xphyle import xopen
+# from xphyle.types import ModeArg
+#
+# class ProcessWriterReader(Thread):
+#     """Thread that streams reads from stdin to a process, and from the process output
+#     to stdout. Data can be written to stdin via the write method, and read from stdout
+#     via the readline method.
+#     """
+#     def __init__(
+#             self, command: Union[str, Sequence[str]], write_mode: ModeArg,
+#             read_mode: ModeArg, timeout: int = 10, **kwargs):
+#         self.process = Popen(command, stdin=PIPE, stdout=PIPE, **kwargs)
+#         self.writer = xopen(self.process.stdin, write_mode)
+#         self.reader = xopen(self.process.stdout, read_mode)
+#         self.queue = Queue()
+#         self.timeout = timeout
+#
+#         def read_into_queue(proc):
+#             while proc.reader:
+#                 line = proc.reader.readline()
+#                 if line:
+#                     proc.queue.put(line)
+#                 else:
+#                     proc.reader = None
+#                     break
+#
+#             # Signal that there's no more to read
+#             proc.queue.put(None)
+#
+#         super().__init__(target=read_into_queue, args=(self,))
+#         self.daemon = True
+#         self.start()
+#
+#     @property
+#     def writable(self) -> bool:
+#         return self.is_alive() and self.writer is not None
+#
+#     def write(self, data):
+#         if not self.writable:
+#             raise IOError("Process already terminated")
+#         self.writer.write(data)
+#
+#     def flush(self) -> None:
+#         if not self.writable:
+#             raise IOError("Process already terminated")
+#         self.writer.flush()
+#
+#     def finish(self) -> None:
+#         if self.writable:
+#             self.flush()
+#             self.writer.close()
+#             self.writer = None
+#
+#     @property
+#     def readable(self) -> bool:
+#         return self.is_alive() and self.reader is not None
+#
+#     def readline(self):
+#         while self.readable:
+#             try:
+#                 return self.queue.get(timeout=self.timeout)
+#             except TimeoutError:
+#                 pass
+#         return None
+#
+#     def terminate(self) -> None:
+#         if self.writable:
+#             self.finish()
+#         if self.readable:
+#             self.reader = None
+#         self.join(self.timeout)
+#         if self.is_alive():
+#             raise RuntimeError("ProcessWriterReader did not terminate")

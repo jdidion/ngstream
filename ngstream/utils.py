@@ -5,12 +5,8 @@ import csv
 import math
 from pathlib import Path
 from pokrok import progress_iter
-from queue import Queue
-from subprocess import Popen, PIPE
-from threading import Thread
 from typing import Iterator, Tuple, List, Sequence, Dict, Union, Optional, cast
-from xphyle import xopen, open_
-from xphyle.types import ModeArg
+from xphyle import open_
 
 
 IndexBatch = Tuple[int, int, int]
@@ -176,7 +172,7 @@ class GenomeReference:
     def __iter__(self) -> Iterator[Tuple[str, int]]:
         return iter(self.chromosomes.items())
 
-    def __getitem__(self, chromosome) -> int:
+    def __getitem__(self, chromosome: str) -> int:
         """
         Args:
             chromosome:
@@ -289,75 +285,3 @@ class CoordinateBatcher:
                 stop = min(start + self.window_size, chrom_stop)
                 window += self.window_step
                 yield (window, chrom, start, stop)
-
-
-class ProcessWriterReader(Thread):
-    """Thread that streams reads from stdin to a process, and from the process output
-    to stdout. Data can be written to stdin via the write method, and read from stdout
-    via the readline method.
-    """
-    def __init__(
-            self, command: Union[str, Sequence[str]], write_mode: ModeArg,
-            read_mode: ModeArg, timeout: int = 10, **kwargs):
-        self.process = Popen(command, stdin=PIPE, stdout=PIPE, **kwargs)
-        self.writer = xopen(self.process.stdin, write_mode)
-        self.reader = xopen(self.process.stdout, read_mode)
-        self.queue = Queue()
-        self.timeout = timeout
-
-        def read_into_queue(proc):
-            while proc.reader:
-                line = proc.reader.readline()
-                if line:
-                    proc.queue.put(line)
-                else:
-                    proc.reader = None
-                    break
-
-            # Signal that there's no more to read
-            proc.queue.put(None)
-
-        super().__init__(target=read_into_queue, args=(self,))
-        self.daemon = True
-        self.start()
-
-    @property
-    def writable(self) -> bool:
-        return self.is_alive() and self.writer is not None
-
-    def write(self, data):
-        if not self.writable:
-            raise IOError("Process already terminated")
-        self.writer.write(data)
-
-    def flush(self) -> None:
-        if not self.writable:
-            raise IOError("Process already terminated")
-        self.writer.flush()
-
-    def finish(self) -> None:
-        if self.writable:
-            self.flush()
-            self.writer.close()
-            self.writer = None
-
-    @property
-    def readable(self) -> bool:
-        return self.is_alive() and self.reader is not None
-
-    def readline(self):
-        while self.readable:
-            try:
-                return self.queue.get(timeout=self.timeout)
-            except TimeoutError:
-                pass
-        return None
-
-    def terminate(self) -> None:
-        if self.writable:
-            self.finish()
-        if self.readable:
-            self.reader = None
-        self.join(self.timeout)
-        if self.is_alive():
-            raise RuntimeError("ProcessWriterReader did not terminate")

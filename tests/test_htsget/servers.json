@@ -144,7 +144,7 @@
             }, {
                 "name":"google",
                 "url":"http://104.196.18.135/reads/CO_Ph7XUCRCSn-mRrofkhXY",
-                "filter_unmapped":true
+                "filter_unmapped": true
             }
         ]
     }

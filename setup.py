@@ -15,12 +15,13 @@ setup(
     description='Utilities for streaming NGS reads from SRA and GA4GH accessions.',
     url='https://github.com/jdidion/ngstream',
     author='John Didion',
-    author_email='john.didion@nih.gov',
+    author_email='github@didion.net',
     license='Public Domain',
     packages=['ngstream'],
     install_requires=[
         'requests',
         'pokrok',
+        'pysam',
         'xphyle>3.9.9'
     ],
     tests_require=['pytest', 'pytest-cov', 'pytest-datadir'],
@@ -32,14 +33,6 @@ setup(
         'ngstream.protocol': [
             'sra=ngstream.protocols.sra:SraProtocol',
             'htsget=ngstream.protocols.htsget:HtsgetProtocol'
-        ],
-        'ngstream.writer': [
-            'buffer=ngstream.writers:BufferWriter',
-            'file=ngstream.writers:FileWriter',
-            'fifo=ngstream.writers.FifoWriter'
-        ],
-        'ngstream.file_format': [
-            'fastq=ngstream.formats:FastqFileFormat'
         ]
     },
     classifiers=[
