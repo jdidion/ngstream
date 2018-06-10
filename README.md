@@ -7,8 +7,7 @@ ngstream is a small python (3.6+) library that makes it easy to stream NGS reads
 # Dependencies
 
 * Interacting with SRA requires [NGS](https://github.com/ncbi/ngs) and the python language bindings to be installed. Follow the instructions [here](https://github.com/ncbi/ngs/wiki/Building-and-Installing-from-Source).
-* For writing to FIFOs, a pipe buffer is required. We recommend [pv](https://linux.die.net/man/1/pv).
-* Samtools is required for converting between BAM/CRAM (e.g. downloaded with Htsget) and FASTQ.
+* pysam is required for converting between BAM/CRAM (e.g. downloaded with Htsget) and SAM/FASTQ.
 
 Note that the SRA toolkit by default caches downloaded data -- if you mysteriously run out of hard disk space, this is probably why. Instructions on how to configure/disable caching are [here](https://github.com/ncbi/sra-tools/wiki/Toolkit-Configuration).
 
@@ -29,27 +28,27 @@ make
 # Accessing Reads from SRA
 
 ```python
-from ngstream import protocol
+import ngstream
 
 # Use the API to stream reads within your own python program.
-with reader('sra', 'SRR3618567') as reader:
-    for frags in reader:
-        # 'frags' is a tuple of fragments, where each fragment is
-        # (name, sequence, qualities). For paired-end reads, 'frags'
-        # usually (always?) has two items (read1, read2).
-        print("\n".join(str(read) for read in frags))
+with ngstream.open('SRR3618567', protocol='sra') as reader:
+    for record in reader:
+        # `record` is an `ngstream.api.Record` object if the data is
+        # single-end, and a `ngstream.api.Fragment` object if the data
+        # is paired-end.
+        print(record.as_fastq())
 ```
 
 # Accessing Reads Using HTSGet
 
 ```python
-from ngstream import GenomeReference, reader
+import ngstream
 from pathlib import Path
 
 url = 'https://era.org/hts/ABC123'
-ref = GenomeReference('GRCh37', Path('GRCh37_sizes.txt'))
+ref = ngstream.GenomeReference('GRCh37', Path('GRCh37_sizes.txt'))
 
-with reader('htsget', url, reference=ref) as reader:
+with ngstream.open(url, protocol='htsget', reference=ref) as reader:
     for pair in reader:
         print("\n".join(str(read) for read in pair))
 ```
@@ -57,19 +56,20 @@ with reader('htsget', url, reference=ref) as reader:
 # Dump reads to a file (or pair of files)
 
 ```python
-from ngstream.protocols.sra import sra_dump
+import ngstream
 
 # Grab 1000 read pairs from an SRA run and write them to FASTQ files.
-result = sra_dump('SRR3618567', item_limit=1000)
-print("Wrote {read_count} reads from {accn} to {file1}, {file2}".format(
-    **result))
+accession = 'SRR3618567'
+with ngstream.open('SRR3618567', protocol='sra') as reader:
+    files = ngstream.dump_fastq(accession, item_limit=1000)
+    print(f"Wrote {reader.read_count} reads from {accession} to {files[0]}, {files[1]}")
+```
 
-# Stream all reads from an accession to a pair of FIFOs. These can be used as
-# inputs to your favorite aligner to avoid the need for writing intermediate
-# files.
-result = sra_dump('ERR1912997', fifos=True, batch_size=1000)
-print("Streamed {read_count} reads from {accn} to {file1}, {file2}".format(
-    **result))
+# Use the command-line tools
+
+```bash
+# Dump all reads from the ABC123 dataset to ABC123.bam in the current directory.
+$ htsget_dump https://era.org/hts/ABC123
 ```
 
 # Documentation

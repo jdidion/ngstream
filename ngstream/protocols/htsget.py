@@ -17,7 +17,7 @@ import re
 import requests
 from threading import Thread
 import time
-from typing import Iterator, Sequence, Union, Optional
+from typing import Iterator, Sequence, Union, Optional, cast
 from urllib.parse import ParseResult, parse_qs, urlencode, urlunparse
 
 import pysam
@@ -76,7 +76,13 @@ class HtsgetDownloader(Thread, metaclass=ABCMeta):
 
     # external interface
 
-    def download_once(self, url_objects: Sequence[dict]) -> None:
+    def download_once(
+            self, url: Union[str, ParseResult], *ticket_args, **ticket_kwargs
+    ) -> None:
+        ticket = get_ticket(url, *ticket_args, **ticket_kwargs)
+        self.download_urls_once(ticket["urls"])
+
+    def download_urls_once(self, url_objects: Sequence[dict]) -> None:
         """Start the downloader, download a single list of URLs, and finish.
 
         Args:
@@ -84,12 +90,18 @@ class HtsgetDownloader(Thread, metaclass=ABCMeta):
         """
         self.start()
         try:
-            self.download(url_objects)
+            self.download_urls(url_objects)
             self.finish(now=False)
         except:
             self.finish(now=True)
 
-    def download(self, url_objects: Sequence[dict]) -> None:
+    def download(
+            self, url: Union[str, ParseResult], *ticket_args, **ticket_kwargs
+    ) -> None:
+        ticket = get_ticket(url, *ticket_args, **ticket_kwargs)
+        self.download_urls(ticket["urls"])
+
+    def download_urls(self, url_objects: Sequence[dict]) -> None:
         """Add a URL to the download queue.
         """
         if not self.is_alive():
@@ -329,13 +341,12 @@ class HtsgetProtocol(Protocol[SamRecord]):
             return self._read_count
 
     def start(self):
-        """Open a stream to samtools view for converting BAM/CRAM to SAM.
+        """
         """
         if self._downloader:
             raise ValueError("Already called start()")
         self._downloader = SamHtsgetDownloader(self.timeout)
         self._downloader.start()
-        self._downloader.download(self.url)
 
     def finish(self):
         if self._downloader:
@@ -357,19 +368,14 @@ class HtsgetProtocol(Protocol[SamRecord]):
             ) -> Iterator[Union[SamRecord, Fragment[SamRecord]]]:
         """Iterate over reads in the specified chromosome interval.
         """
-        ticket_request_url = get_ticket_request_url(
-            self.parsed_url, data_format=self.data_format,
+        ticket = get_ticket(
+            self.parsed_url, timeout=self.timeout, data_format=self.data_format,
             reference_name=chromosome, reference_md5=self.md5,
-            start=start, end=stop, tags=self.tags, notags=self.notags)
-
-        logging.debug(
-            "handle_ticket_request(url={})".format(ticket_request_url))
-        response = httpget(ticket_request_url, timeout=self.timeout)
-        ticket = response.json()
-
+            start=start, end=stop, tags=self.tags, notags=self.notags
+        )
         self.data_format = ticket.get("format", self.data_format)
         self.md5 = ticket.get("md5", None)
-        self._downloader.download(ticket["urls"])
+        self._downloader.download_urls(ticket["urls"])
 
         for read in self._downloader:
             if read is None:
@@ -397,6 +403,20 @@ class HtsgetProtocol(Protocol[SamRecord]):
                     self._cache[read.query_name] = read
 
 
+def get_ticket(
+        url: Union[str, ParseResult], *ticket_args, timeout: int = 10,
+        **ticket_kwargs) -> dict:
+    if isinstance(url, str):
+        parsed_url = parse_url(url)
+    else:
+        parsed_url = cast(ParseResult, url)
+    ticket_request_url = get_ticket_request_url(
+        parsed_url, *ticket_args, **ticket_kwargs)
+    logging.debug(f"handle_ticket_request(url={ticket_request_url})")
+    response = httpget(ticket_request_url, timeout=timeout)
+    return response.json()
+
+
 def get_ticket_request_url(
         parsed_url: ParseResult, data_format: Optional[str] = None,
         reference_name: Optional[str] = None, reference_md5: Optional[str] = None,
@@ -404,7 +424,8 @@ def get_ticket_request_url(
         # It's not clear to me what happens if I request BAM data with only a subset
         # of fields. Excluding this for now.
         # fields: Sequence[str] = ('QNAME', 'FLAGS', 'SEQ', 'QUAL'),
-        tags: Optional[Sequence[str]] = None, notags: Optional[Sequence[str]] = None):
+        tags: Optional[Sequence[str]] = None, notags: Optional[Sequence[str]] = None
+) -> str:
     """Generates an htsget request URL.
 
     Args:
@@ -424,6 +445,9 @@ def get_ticket_request_url(
             must also be specified.
         tags: Sequence of tags to include.
         notags: Seqeunce of tags to exclude
+
+    Returns:
+        A URL.
     """
     get_vars = parse_qs(parsed_url.query)
     # TODO error checking
@@ -471,7 +495,7 @@ Note that Htsget does not provide mechanisms for 1) discovering identifiers, or
 2) determining the reference genome to which a read set was aligned.
 """)
     parser.add_argument(
-        '-g', '--reference',
+        '-g', '--reference', default=None,
         help="Reference genome of the reads being downloaded, specified as "
              "<name>=<path to chromosome sizes file>.")
     parser.add_argument(

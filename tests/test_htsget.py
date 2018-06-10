@@ -8,6 +8,7 @@ from typing import Sequence
 from ngstream.protocols.htsget import HtsgetProtocol, SamRecord
 from ngstream.utils import GenomeReference
 from .mock_htsget import MockServer, MockURLInstance, TICKET_URL
+from .real_htsget import ServerTester
 import pysam
 import pytest
 
@@ -47,5 +48,5 @@ def test_binary_data(datadir: Path, server: MockServer, reference: GenomeReferen
 
 
 @pytest.mark.skipif_no_internet
-def test_server(tester: ServerTester):
-    tester.run()
+def test_server(htsget_case: ServerTester):
+    htsget_case.run()

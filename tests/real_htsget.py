@@ -5,7 +5,7 @@ import random
 import tempfile
 from typing import Callable, Any, Optional
 
-from ngstream.protocols.htsget import HtsgetProtocol
+from ngstream.protocols.htsget import BamHtsgetDownloader
 
 import pysam
 import pytest
@@ -281,21 +281,16 @@ class ServerTester:
         assert r1 is None and r2 is None
         assert total_checks == num_reads
 
-    def verify_query(self, reference_name=None, start=None, end=None):
+    def verify_query(
+            self, reference_name=None, start=None, end=None, **download_kwargs):
         """
         Runs the specified query and verifies the result.
         """
-        batcher_kwargs = dict(chromosome_starts=start, chromosome_stops=end)
-        if reference_name:
-            batcher_kwargs['chromosomes'] = [reference_name]
-
-        protocol = HtsgetProtocol(
-            self.server_url, data_format=self.data_format,
-            bearer_token=self.bearer_token, ca_bundle=self.ca_bundle,
-            **batcher_kwargs
+        downloader = BamHtsgetDownloader(self.temp_file_name)
+        downloader.download_once(
+            self.server_url, reference_name=reference_name, start=start, end=end,
+            **download_kwargs
         )
-
-        self.temp_file_name
 
         # Index the downloaded file and compare the reads.
         pysam.index(self.temp_file_name)

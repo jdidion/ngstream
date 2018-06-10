@@ -6,7 +6,7 @@ TODO: [JD] Incorporate Popen hacks from
 """
 from argparse import ArgumentParser
 import json
-from typing import Iterator, Callable, Union, Generic
+from typing import Iterator, Callable, Union, Optional, Generic
 from ngs import NGS
 from ngs.Read import Read
 from ngstream.api import Protocol, Record, RecordType, Fragment, dump_fastq
@@ -32,48 +32,65 @@ class DefaultSraRecord(Record):
         return self._qualities
 
 
-def sra_reads(
-        read: Read, paired: bool = None, expected_fragments: int = None,
-        record_class: Callable[..., RecordType] = DefaultSraRecord
-        ) -> Union[RecordType, Fragment[RecordType]]:
-    """Creates Records from the current read of an ngs.ReadIterator. Typically the
-    fragment has one or two reads sfor single- and paired-end reads, respectively.
-
+class SraRecordFactory:
+    """
     Args:
-        read: an NGS.Read instance.
         paired: Whether this is paired-end data.
-        expected_fragments: The number of fragments expected for this read. If
-            None, fragment number is not validated.
         record_class: Type of Record to create.
 
-    Returns:
-        The tuple (frag1, frag2...), where each fragment is a tuple
-        (read_name, sequence, qualities).
     """
-    read_name = read.getReadName()
-    num_fragments = read.getNumFragments()
-    if expected_fragments and num_fragments != expected_fragments:
-        raise Exception(
-            f"Read {read_name} has fewer than {expected_fragments} fragments")
+    def __init__(
+            self, paired: bool = None,
+            record_class: Callable[..., RecordType] = DefaultSraRecord
+    ) -> None:
+        self.paired = paired
+        self.record_class = record_class
 
-    # TODO: extract other useful information such as read group
-    # read_group = read.getReadGroup()
+    def __call__(
+            self, read: Read, detect_pairing: Optional[bool] = None,
+            expected_fragments: Optional[int] = None
+    ) -> Iterator[Union[RecordType, Fragment[RecordType]]]:
+        """Creates Records from the current read of an ngs.ReadIterator. Typically the
+        fragment has one or two reads sfor single- and paired-end reads, respectively.
 
-    def next_frag() -> RecordType:
-        """Create (name, bases, qualities) tuple from the next fragment.
+        Args:
+            read: An NGS.Read instance.
+            detect_pairing: Override the default pairing specified in the constructor.
+            expected_fragments: The number of fragments expected for this read. If
+                None, fragment number is not validated.
+
+        Returns:
+            The tuple (frag1, frag2...), where each fragment is a tuple
+            (read_name, sequence, qualities).
         """
-        read.nextFragment()
-        if paired and not read.isPaired():
-            raise Exception("Read {} is not paired".format(read_name))
-        return record_class(
-            read_name,
-            read.getFragmentBases(),
-            read.getFragmentQualities())
+        paired = None if detect_pairing is False else self.paired
+        read_name = read.getReadName()
+        read_paired = read.isPaired()
+        num_fragments = read.getNumFragments()
+        if expected_fragments and num_fragments != expected_fragments:
+            raise Exception(
+                f"Read {read_name} has fewer than {expected_fragments} fragments")
 
-    if paired:
-        return Fragment[RecordType](*(next_frag() for _ in range(num_fragments)))
-    else:
-        return next_frag()
+        # TODO: extract other useful information such as read group
+        # read_group = read.getReadGroup()
+
+        def next_frag() -> RecordType:
+            """Create (name, bases, qualities) tuple from the next fragment.
+            """
+            read.nextFragment()
+            if paired and not read_paired:
+                raise Exception("Read {} is not paired".format(read_name))
+            return self.record_class(
+                read_name,
+                read.getFragmentBases(),
+                read.getFragmentQualities())
+
+        records = (next_frag() for _ in range(num_fragments))
+
+        if read_paired and paired in {True, None}:
+            yield Fragment[RecordType](*records)
+        else:
+            yield from records
 
 
 class SraProtocol(Generic[RecordType], Protocol[RecordType]):
@@ -82,6 +99,9 @@ class SraProtocol(Generic[RecordType], Protocol[RecordType]):
 
     Args:
         accession: The accession number
+        paired: If True, causes an error to be raised if the dataset is not paired-end.
+            If False, will be treated as single-end even if the data is paired.
+            Otherwise read pairing is auto-detected.
         batch_iterator: An iterator over indexes of batches to fetch. Typically,
             this is created using a :class:`srastream.utils.Batcher`.
         record_factory: Callable that takes a NGS.Read instance and returns a tuple of
@@ -109,11 +129,9 @@ class SraProtocol(Generic[RecordType], Protocol[RecordType]):
     """
     def __init__(
             self, accession: str, batch_iterator: Iterator[IndexBatch] = None,
-            record_factory:
-            Callable[[Read], Union[RecordType, Fragment[RecordType]]] = sra_reads,
-            **batcher_args):
+            record_factory: Optional[SraRecordFactory] = None, **batcher_args):
         self._accession = accession
-        self.record_factory = record_factory
+        self.record_factory = record_factory or SraRecordFactory()
         self.batch_iterator = batch_iterator or IndexBatcher(**batcher_args)
         self.read_collection = None
         self.run_name = None
@@ -134,7 +152,7 @@ class SraProtocol(Generic[RecordType], Protocol[RecordType]):
             with self.read_collection.getReadRange(start + 1, size, Read.all) as read:
                 for _ in range(size):
                     read.nextRead()
-                    yield self.record_factory(read)
+                    yield from self.record_factory(read, paired=self._paired)
 
     def start(self):
         """Open the read collection.
@@ -146,7 +164,7 @@ class SraProtocol(Generic[RecordType], Protocol[RecordType]):
         # is single- or paired-end
         with self.read_collection.getReadRange(1, 1, Read.all) as read:
             read.nextRead()
-            self._frag_count = len(sra_reads(read))
+            self._frag_count = self.record_factory(read, paired=None)
 
     def finish(self):
         """Close the read collection.
@@ -165,13 +183,13 @@ class SraProtocol(Generic[RecordType], Protocol[RecordType]):
 
     @property
     def paired(self) -> bool:
-        if self.frag_count is None:
+        if self._frag_count is None:
             raise ValueError("Must call start() first")
-        return self.frag_count == 2
+        return self._frag_count == 2
 
     @property
     def read_count(self) -> int:
-        if self.read_count is None:
+        if self._read_count is None:
             raise ValueError("Must call start() first")
         return self._read_count
 

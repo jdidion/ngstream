@@ -119,7 +119,7 @@ class Protocol(Generic[RecordType], metaclass=GenericMeta):
 def dump_fastq(
         protocol: Protocol, prefix: str, output_mode: str = 'wt',
         compression: Union[bool, str] = True, interleaved: bool = False
-        ) -> Sequence[str, ...]:
+) -> Sequence[str, ...]:
     """Dump reads from a Protocol to fastq file(s).
 
     Args:
