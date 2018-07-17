@@ -8,6 +8,7 @@ from ngstream.utils import GenomeReference
 from .mock_htsget import MockServer, MockRequestHandler, PORT, REFERENCE
 from .real_htsget import ServerTester
 
+
 try:
     urlopen("https://github.com").info()
     INTERNET_CONNECTION = True
@@ -54,19 +55,15 @@ def reference():
 
 
 @pytest.fixture
-def htsget_json(datadir: Path) -> Sequence[dict]:
+def htsget_case(datadir: Path) -> ServerTester:
     with open(datadir / 'servers.json', 'rt') as inp:
-        return json.load(inp)['cases']
-
-
-@pytest.fixture(params=htsget_json)
-def htsget_case(request) -> ServerTester:
-    for case in cast(Sequence['dict'], request.param):
-        filename = case['file']
-        for _server in case['servers']:
-            yield ServerTester(
-                filename, _server['name'], _server['url'],
-                _server.get('filter_unmapped', False),
-                int(_server.get('random_seed', 1)),
-                _server.get('bearer_token', None),
-                _server.get('ca_bundle', None))
+        cases = json.load(inp)['cases']
+        for case in cases:
+            filename = case['file']
+            for _server in case['servers']:
+                yield ServerTester(
+                    filename, _server['name'], _server['url'],
+                    _server.get('filter_unmapped', False),
+                    int(_server.get('random_seed', 1)),
+                    _server.get('bearer_token', None),
+                    _server.get('ca_bundle', None))

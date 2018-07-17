@@ -7,19 +7,21 @@ from pathlib import Path
 from typing import Sequence
 from ngstream.protocols.htsget import HtsgetProtocol, SamRecord
 from ngstream.utils import GenomeReference
-from .mock_htsget import MockServer, MockURLInstance, TICKET_URL
-from .real_htsget import ServerTester
+from tests import mktmpfile
+from tests.mock_htsget import MockServer, MockURLInstance, TICKET_URL
+from tests.real_htsget import ServerTester
 import pysam
 import pytest
 
 
 def assert_data_transfer_ok(
-        httpd: MockServer, reference: GenomeReference, tempdir,
+        httpd: MockServer, reference: GenomeReference, tmpdir,
         test_instances: Sequence[MockURLInstance], max_retries=0):
     httpd.test_instances = test_instances
-    outfile = tempdir.makefile(suffix='.sam')
+    outfile = mktmpfile(tmpdir, suffix='.sam')
+    print(outfile)
     with HtsgetProtocol(TICKET_URL, reference, paired=False) as reader:
-        sam = pysam.AlignmentFile(outfile, 'wt', reader.headers)
+        sam = pysam.AlignmentFile(outfile, 'w', header=reader.headers)
         for read in reader:
             assert isinstance(read, SamRecord)
             sam.write(read.record)
@@ -41,10 +43,18 @@ def assert_data_transfer_ok(
 #     self.assert_data_transfer_ok(instances)
 
 
-def test_binary_data(datadir: Path, server: MockServer, reference: GenomeReference):
-    instances = [MockURLInstance(
-        datadir, "paired.bam", "paired.1.fastq", "paired.2.fastq")]
-    assert_data_transfer_ok(server, reference, instances)
+def test_binary_data(
+        datadir: Path, server: MockServer, reference: GenomeReference, tmpdir
+):
+    instances = [
+        MockURLInstance(
+            datadir, "paired_header.bam", url_class='header'
+        ),
+        MockURLInstance(
+            datadir, "paired.bam", "paired.1.fastq", "paired.2.fastq", url_class='body'
+        )
+    ]
+    assert_data_transfer_ok(server, reference, tmpdir, instances)
 
 
 @pytest.mark.skipif_no_internet

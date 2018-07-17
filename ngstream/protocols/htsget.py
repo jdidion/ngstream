@@ -17,19 +17,26 @@ import re
 import requests
 from threading import Thread
 import time
-from typing import Iterator, Sequence, Union, Optional, cast
+from typing import Iterator, Sequence, Union, Optional, Callable, cast
 from urllib.parse import ParseResult, parse_qs, urlencode, urlunparse
 
 import pysam
 from xphyle import parse_url
 from xphyle.utils import read_delimited_as_dict
 
+from ngstream.protocols import ProtocolStateError
 from ngstream.api import Protocol, Record, Fragment, dump_fastq
 from ngstream.utils import CoordinateBatcher, CoordBatch, GenomeReference
 
 
 CONTENT_LENGTH = "Content-Length"
 REGION_RE = re.compile(r'([^:]*)(?::(.*?)-(.*))?')
+DEFAULT_CHUNK_SIZE = 2**16
+
+
+class DownloaderStateError(Exception):
+    """The Downloader is in an invalid state.
+    """
 
 
 class ContentLengthMismatchError(Exception):
@@ -105,10 +112,10 @@ class HtsgetDownloader(Thread, metaclass=ABCMeta):
         """Add a URL to the download queue.
         """
         if not self.is_alive():
-            raise RuntimeError("Downloader not started")
+            raise DownloaderStateError("Downloader not started")
         for url_object in url_objects:
             self._url_queue.put(url_object)
-        self._url_queue.put(None)
+        self._url_queue.put(HtsgetDownloader.FINISH_SIGNAL)
 
     def finish(self, now: bool = False) -> None:
         """Stop the Downloader.
@@ -153,22 +160,13 @@ class HtsgetDownloader(Thread, metaclass=ABCMeta):
             while True:
                 try:
                     url_object = self._url_queue.get_nowait()
-                    if url_object in {
-                        HtsgetDownloader.FINISH_SIGNAL,
-                        HtsgetDownloader.TERMINATE_SIGNAL
-                    }:
+                    if isinstance(url_object, int):
                         signal = url_object
                         break
                     url = parse_url(url_object['url'])
                     if url is None:
                         raise ValueError(f"Invalid URL: {url_object['url']}")
-                    if url.scheme.startswith("http"):
-                        headers = url_object.get("headers", "")
-                        self._handle_http_url(urlunparse(url), headers)
-                    elif url.scheme == "data":
-                        self._handle_data_uri(url)
-                    else:
-                        raise ValueError("Unsupported URL scheme:{}".format(url.scheme))
+                    handle_htsget_url(url, url_object, self.timeout, self._write)
                 except Empty:
                     time.sleep(1)
         finally:
@@ -176,28 +174,6 @@ class HtsgetDownloader(Thread, metaclass=ABCMeta):
                 self._finish_thread()
             else:
                 self._terminate_thread()
-
-    def _handle_http_url(self, url: str, headers: str):
-        logging.debug(f"handle_http_url(url={url}, headers={headers})")
-        response = httpget(url, headers=headers, stream=True, timeout=self.timeout)
-        length = 0
-        piece_size = 65536
-        for piece in response.iter_content(piece_size):
-            length += len(piece)
-            self._write(piece)
-        if CONTENT_LENGTH in response.headers:
-            content_length = int(response.headers[CONTENT_LENGTH])
-            if content_length != length:
-                raise ContentLengthMismatchError(
-                    "Length mismatch {content_length} != {length}")
-
-    def _handle_data_uri(self, parsed_url: ParseResult):
-        split = parsed_url.path.split(",", 1)
-        # TODO parse out the encoding properly.
-        description = split[0]
-        data = base64.b64decode(split[1])
-        logging.debug(f"handle_data_uri({description}, length={len(data)})")
-        self._write(data)
 
     @abstractmethod
     def _write(self, data: bytes) -> None:
@@ -222,60 +198,135 @@ class BamHtsgetDownloader(HtsgetDownloader):
         self.output_file = output_file
         self._output_fh = None
 
-    def _write(self, data: bytes) -> None:
-        self._output_fh.write(data)
-        self.byte_count += len(data)
-
     def _init_thread(self):
         self._output_fh = open(self.output_file, 'wb')
 
     def _finish_thread(self) -> None:
+        self._output_fh.flush()
         self._output_fh.close()
+
+    def _write(self, data: bytes) -> None:
+        self._output_fh.write(data)
+        self.byte_count += len(data)
 
 
 class SamHtsgetDownloader(HtsgetDownloader):
     def __init__(self, timeout: int = 10, bufsize: Optional[int] = None):
         super().__init__(timeout)
-        self.bufsize = bufsize
+        self.bufsize = bufsize or -1
         self.read_count = 0
-        self._pipe_reader, self._pipe_writer = os.pipe()
-        self._reader = io.open(self._pipe_reader, 'rb', self.bufsize)
-        self._sam = pysam.AlignmentFile(self._reader, 'r')
         self.headers = None
+        self._pipe_reader, self._pipe_writer = os.pipe()
+        self._reader = open(self._pipe_reader, 'rb', self.bufsize)
+        self._sam = None
         self._writer = None
 
     def _init_thread(self):
-        self._writer = io.open(self._pipe_writer, 'wb', self.bufsize)
+        self._writer = open(self._pipe_writer, 'wb', self.bufsize)
 
     def _finish_thread(self) -> None:
+        self._writer.flush()
         self._writer.close()
 
     def _write(self, data: bytes) -> None:
         self._writer.write(data)
 
+    def download_headers(
+            self, url: Union[str, ParseResult], *ticket_args, **ticket_kwargs
+    ) -> dict:
+        """Download and return only the headers.
+
+        The only reliable way to get the headers without downloading the entire
+        BAM file is to use the new v1.1 'class' keyword, which annotates a URL as
+        containing either 'header' or 'body'.
+
+        Args:
+            url:
+            *ticket_args:
+            **ticket_kwargs:
+
+        Returns:
+            The header dict. Has the side-effect of initializing self.headers.
+        """
+        ticket = get_ticket(url, *ticket_args, **ticket_kwargs)
+        # If 'header' URLs are provided, they must come before 'body' URLs.
+        if 'class' in ticket['urls'][0]:
+            header_urls = [
+                url_object for url_object in ticket['urls']
+                if url_object['class'] == 'header'
+            ]
+            return self.download_header_urls(header_urls)
+        else:
+            raise DownloaderStateError(
+                "Headers have not yet been initialized, and the server does not "
+                "provide header-only URLs."
+            )
+
+    def download_header_urls(self, header_url_objects) -> dict:
+        """Download only the headers from the given url objects.
+
+        Threading is not necessary for this - we simply download (and concatenate if
+        necessary) all contents of the URLs into a byte string, create a
+        pysam.AlignmentFile, and extract the headers.
+
+        Args:
+            header_url_objects:
+
+        Returns:
+            The header dict. Has the side-effect of initializing self.headers.
+        """
+        bam_bytes = io.BytesIO()
+        for url_object in header_url_objects:
+            handle_htsget_url(
+                parse_url(url_object['url']),
+                url_object,
+                self.timeout,
+                bam_bytes.write
+            )
+
+        pipe_reader, pipe_writer = os.pipe()
+        with open(pipe_writer, 'wb') as out:
+            out.write(bam_bytes.getvalue())
+            out.flush()
+        with open(pipe_reader, 'rb') as inp:
+            bam = pysam.AlignmentFile(inp, 'r', check_sq=False)
+            self.headers = bam.header
+            print(self.headers)
+            return self.headers
+
     def __iter__(self) -> Iterator[pysam.AlignedSegment]:
-        if not (self.is_alive() and self._sam):
+        if not self.is_alive():
             raise RuntimeError("Downloader not running")
-        # We need to block until the first read is ready to make sure all the headers
-        # have been read
-        read = next(self._sam)
-        self.read_count += 1
-        self.headers = self._sam.headers
-        # yield the first read
-        yield read
-        # yield the remaining reads
+        time.sleep(2)
+        #
+        bytes = []
+        while True:
+            b = self._reader.read()
+            print(b)
+            if not b:
+                break
+            bytes.append(b)
+        bb = b''.join(bytes)
+        print(bb)
+        with open('/Users/jdidion/projects/ngstream/foo.bam', 'wb') as out:
+            out.write(bb)
+            out.flush()
+
+        self._sam = pysam.AlignmentFile(self._reader, 'rb', check_sq=False)
         for read in self._sam:
-            yield read
             self.read_count += 1
+            yield read
 
     def finish(self, now: bool = False) -> None:
         try:
             super().finish(now)
         finally:
-            self._sam.close()
-            self._sam = None
-            self._reader.close()
-            self._reader = None
+            if self._sam:
+                self._sam.close()
+                self._sam = None
+            if self._reader:
+                self._reader.close()
+                self._reader = None
 
 
 class HtsgetProtocol(Protocol[SamRecord]):
@@ -313,7 +364,6 @@ class HtsgetProtocol(Protocol[SamRecord]):
         self.tags = tags
         self.notags = notags
         self.timeout = timeout
-        self.headers = None
         self.data_format = 'bam'
         self._downloader = None
         self._read_count = 0
@@ -340,6 +390,19 @@ class HtsgetProtocol(Protocol[SamRecord]):
         else:
             return self._read_count
 
+    @property
+    def headers(self):
+        if self._downloader is None:
+            raise ProtocolStateError("Must call start() before accessing headers")
+        elif self._downloader.headers:
+            return self._downloader.headers
+        else:
+            # The downloader has been started but the headers have not been
+            # initialized, so try to download only the headers.
+            return self._downloader.download_headers(
+                self.parsed_url, timeout=self.timeout, data_format=self.data_format
+            )
+
     def start(self):
         """
         """
@@ -350,7 +413,7 @@ class HtsgetProtocol(Protocol[SamRecord]):
 
     def finish(self):
         if self._downloader:
-            self._downloader.terminate()
+            self._downloader.finish(now=True)
         self._read_count = self._downloader.read_count
         self._downloader = None
         self._cache = None
@@ -470,6 +533,46 @@ def get_ticket_request_url(
     new_url = list(parsed_url)
     new_url[4] = urlencode(get_vars, doseq=True)
     return urlunparse(new_url)
+
+
+def handle_htsget_url(
+        parsed_url: ParseResult, url_object: dict, timeout: int,
+        writer: Callable[[bytes], None]
+):
+    if parsed_url.scheme.startswith("http"):
+        _handle_http_url(
+            url_object['url'], url_object.get("headers", ""), timeout, writer
+        )
+    elif parsed_url.scheme == "data":
+        _handle_data_uri(parsed_url, writer)
+    else:
+        raise ValueError("Unsupported URL scheme: {}".format(parsed_url.scheme))
+
+
+def _handle_http_url(
+        url: str, headers: str, timeout: int, writer: Callable[[bytes], None]
+):
+    logging.debug(f"handle_http_url(url={url}, headers={headers})")
+    response = httpget(url, headers=headers, stream=True, timeout=timeout)
+    length = 0
+    piece_size = DEFAULT_CHUNK_SIZE
+    for piece in response.iter_content(piece_size):
+        length += len(piece)
+        writer(piece)
+    if CONTENT_LENGTH in response.headers:
+        content_length = int(response.headers[CONTENT_LENGTH])
+        if content_length != length:
+            raise ContentLengthMismatchError(
+                "Length mismatch {content_length} != {length}")
+
+
+def _handle_data_uri(parsed_url: ParseResult, writer: Callable[[bytes], None]):
+    split = parsed_url.path.split(",", 1)
+    # TODO parse out the encoding properly.
+    description = split[0]
+    data = base64.b64decode(split[1])
+    logging.debug(f"handle_data_uri({description}, length={len(data)})")
+    writer(data)
 
 
 def httpget(*args, **kwargs):

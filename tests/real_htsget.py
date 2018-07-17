@@ -68,7 +68,7 @@ class ServerTester:
             tmpdir: Path = None, num_boundary_reads: int = 10,
             max_references: int = 100, num_random_queries: int = 20,
             max_random_query_length: int = 10 ** 6):
-        extension = os.path.splitext(self.source_file_name)[1].lower()
+        extension = os.path.splitext(source_file_name)[1].lower()
         if extension == ".cram":
             self.data_format = FORMAT_CRAM
         elif extension == ".bam":

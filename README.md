@@ -9,7 +9,11 @@ ngstream is a small python (3.6+) library that makes it easy to stream NGS reads
 * Interacting with SRA requires [NGS](https://github.com/ncbi/ngs) and the python language bindings to be installed. Follow the instructions [here](https://github.com/ncbi/ngs/wiki/Building-and-Installing-from-Source).
 * pysam is required for converting between BAM/CRAM (e.g. downloaded with Htsget) and SAM/FASTQ.
 
-Note that the SRA toolkit by default caches downloaded data -- if you mysteriously run out of hard disk space, this is probably why. Instructions on how to configure/disable caching are [here](https://github.com/ncbi/sra-tools/wiki/Toolkit-Configuration).
+Note that the SRA toolkit by default caches downloaded data -- if you mysteriously run out of hard disk space, this is probably why. Instructions on how to configure/disable caching are [here](https://github.com/ncbi/sra-tools/wiki/Toolkit-Configuration). If you want to change the cache location, use the following command (it won't return 0, but it still works):
+
+```bash
+vdb-config --root -s /repository/user/main/public/root=<TARGET_DIR>
+```
 
 # Installation
 

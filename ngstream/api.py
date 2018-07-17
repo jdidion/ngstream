@@ -119,7 +119,7 @@ class Protocol(Generic[RecordType], metaclass=GenericMeta):
 def dump_fastq(
         protocol: Protocol, prefix: str, output_mode: str = 'wt',
         compression: Union[bool, str] = True, interleaved: bool = False
-) -> Sequence[str, ...]:
+) -> Sequence[str]:
     """Dump reads from a Protocol to fastq file(s).
 
     Args:
@@ -133,6 +133,10 @@ def dump_fastq(
 
     Returns:
         A sequence of the output file names.
+
+    TODO:
+        Employ the stragety of fasterq-dump and store raw reads in memory or temp
+        files and then compress using a separate thread.
     """
     if compression is True:
         compression = 'gz'

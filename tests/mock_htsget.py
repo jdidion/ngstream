@@ -19,9 +19,10 @@ class MockURLInstance:
         self,
         root: Path,
         input_file,
-        expected_file1,
+        expected_file1=None,
         expected_file2=None,
         headers=None,
+        url_class=None,
         error_code=None,
         truncate=False,
     ):
@@ -29,13 +30,13 @@ class MockURLInstance:
         self.url = f"/input/{input_file}"
         self.input_file = self.root / input_file
         self.expected_files = [
-            os.path.join(self.root, "expected", fname)
+            os.path.join(self.root, "expected", fname) if fname else None
             for fname in (expected_file1, expected_file2)
-            if fname is not None
         ]
         self._data = None
         self._expected = [None, None]
         self.headers = headers or {}
+        self.url_class = url_class
         self.error_code = error_code
         self.truncate = truncate
 
@@ -48,12 +49,13 @@ class MockURLInstance:
 
     @property
     def expected(self):
-        if all(d is None for d in self._data):
-            for i, fname in enumerate(self.expected):
+        if self._expected is None:
+            self._expected = [None, None]
+            for i, fname in enumerate(self.expected_files):
                 if fname is not None:
                     with open(fname, "rt") as inp:
-                        self._data[i] = inp.read()
-        return self._data
+                        self._expected[i] = inp.read()
+        return self._expected
 
 
 class MockServer(socketserver.TCPServer):
@@ -81,14 +83,23 @@ class MockRequestHandler(BaseHTTPRequestHandler):
         if parsed.path == TICKET_PATH:
             self.send_response(200)
             self.end_headers()
-            urls = [
-                {
+
+            def make_url(test_instance):
+                url_object = {
                     "url": urljoin(SERVER_URL, test_instance.url),
-                    "headers": test_instance.headers,
+                    "headers": test_instance.headers
                 }
-                for test_instance in self.server.test_instances
-            ]
-            ticket = {"urls": urls}
+                if test_instance.url_class:
+                    url_object["class"] = test_instance.url_class
+                return url_object
+
+            ticket = {
+                "urls": [
+                    make_url(test_instance)
+                    for test_instance in self.server.test_instances
+                ]
+            }
+
             self.wfile.write(json.dumps(ticket).encode())
         elif self.path in url_map:
             instance = url_map[self.path]
