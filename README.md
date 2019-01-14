@@ -6,7 +6,7 @@ ngstream is a small python (3.6+) library that makes it easy to stream NGS reads
 
 # Dependencies
 
-* Interacting with SRA requires [NGS](https://github.com/ncbi/ngs) and the python language bindings to be installed. Follow the instructions [here](https://github.com/ncbi/ngs/wiki/Building-and-Installing-from-Source).
+* Interacting with SRA requires [NGS](https://github.com/ncbi/ngs) and the python language bindings to be installed. Follow the instructions [here](https://github.com/ncbi/ngs/wiki/Building-and-Installing-from-Source). We recommend installing the SDK from [bioconda](https://bioconda.github.io/recipes/ncbi-ngs-sdk/README.html) and then installing the python library from GitHub.
 * pysam is required for converting between BAM/CRAM (e.g. downloaded with Htsget) and SAM/FASTQ.
 
 Note that the SRA toolkit by default caches downloaded data -- if you mysteriously run out of hard disk space, this is probably why. Instructions on how to configure/disable caching are [here](https://github.com/ncbi/sra-tools/wiki/Toolkit-Configuration). If you want to change the cache location, use the following command (it won't return 0, but it still works):
@@ -88,3 +88,8 @@ Coming soon
 * We use Google-style docstrings, which are formatted by the [Napoleon Sphinx Plugin](https://pypi.python.org/pypi/sphinxcontrib-napoleon).
 * We run pylint as part of each build and strive to maintain a 10/10 score.
 * We enforce a [Code of Conduct](CODE_OF_CONDUCT.md).
+
+# Todo
+
+* Add EGA support https://www.ebi.ac.uk/ega/about/your_EGA_account/download_streaming_client#API
+* Acceleration of SRA downloads using prefetch: https://twitter.com/PhilippBayer/status/1076800095910150145

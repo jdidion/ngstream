@@ -32,6 +32,14 @@ from ngstream.utils import CoordinateBatcher, CoordBatch, GenomeReference
 CONTENT_LENGTH = "Content-Length"
 REGION_RE = re.compile(r'([^:]*)(?::(.*?)-(.*))?')
 DEFAULT_CHUNK_SIZE = 2**16
+BGZF_EOF_MARKER = [
+    0x1f, 0x8b, 0x08, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0x06, 0x00, 0x42, 0x43,
+    0x02, 0x00, 0x1b, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+]
+"""These 28 bytes signal the end of a BGZF block. We need to add them to the data
+streamed from 'header' class URLs in order to create a valid BAM file that can be
+parsed by pysam.
+"""
 
 
 class DownloaderStateError(Exception):
@@ -287,6 +295,7 @@ class SamHtsgetDownloader(HtsgetDownloader):
         pipe_reader, pipe_writer = os.pipe()
         with open(pipe_writer, 'wb') as out:
             out.write(bam_bytes.getvalue())
+            out.write(BGZF_EOF_MARKER)
             out.flush()
         with open(pipe_reader, 'rb') as inp:
             bam = pysam.AlignmentFile(inp, 'r', check_sq=False)
