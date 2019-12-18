@@ -40,7 +40,10 @@ def assert_data_transfer_ok(
 
 @pytest.mark.parametrize("samtools", (True, False))
 def test_binary_data(
-    datadir: Path, server: MockServer, reference: GenomeReference, samtools: bool
+    datadir: Path,
+    server: MockServer,
+    reference: GenomeReference,
+    samtools: bool
 ):
     assert_data_transfer_ok(
         server=server,

@@ -1,7 +1,7 @@
 import csv
 import io
 from pathlib import Path
-from typing import Iterator, Optional, Sequence, Union
+from typing import Iterator, Optional, Sequence
 
 import subby
 

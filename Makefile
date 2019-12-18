@@ -4,17 +4,26 @@ desc = Release $(version)
 tests = tests
 pytestops = -vv -s --full-trace
 
-all: clean install test
+all: clean install install_extra_requirements install_test_requirements test test_release_setup
 
 build:
 	python setup.py build_ext -i
 	python setup.py sdist bdist_wheel
 
 install: clean build
-	python setup.py install $(installargs)
+	pip install --upgrade dist/*.whl $(installargs)
 
-test:
-	py.test $(pytestops) $(tests)
+install_test_requirements:
+	pip install -r requirements-test.txt
+
+install_extra_requirements:
+	pip install -r requirements-extra.txt
+
+test: install install_extra_requirements install_test_requirements
+	python -c "import ngs" pytest $(pytestops) $(tests)
+
+test_release_setup:
+	twine check dist/*
 
 docs:
 	make -C doc html
@@ -33,34 +42,22 @@ clean:
 	rm -Rf .adapters
 	rm -Rf atropos.egg-info
 
-docker:
-	# build
-	docker build -f Dockerfile -t $(repo):$(version) .
-	# add alternate tags
-	docker tag $(repo):$(version) $(repo):latest
-	# push to Docker Hub
-	docker login && docker push $(repo)
-
-release:
-	$(clean)
-	# tag
-	git tag $(version)
-	# build
-	$(BUILD)
-	$(TEST)
-	python setup.py sdist bdist_wheel
-	# release
-	python setup.py sdist upload -r pypi
-	git push origin --tags
-	$(github_release)
-	$(docker)
-
 tag:
 	git tag $(version)
 
-release: clean tag install test
-	python setup.py sdist upload -r pypi
+
+push_tag:
 	git push origin --tags
+
+del_tag:
+	git tag -d $(version)
+
+pypi_release:
+	python setup.py sdist upload -r pypi
+
+release: clean tag
+	${MAKE} install install_extras test pypi_release push_tag || (${MAKE} del_tag && exit 1)
+
 	# github release
 	curl -v -i -X POST \
 		-H "Content-Type:application/json" \

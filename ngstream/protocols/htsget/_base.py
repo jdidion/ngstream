@@ -510,7 +510,8 @@ def _handle_data_uri(parsed_url: ParseResult, writer: Callable[[bytes], None]):
 
 
 def httpget(*args, **kwargs):
-    """Send a GET request and return the response.
+    """
+    Send a GET request and return the response.
     """
     response = requests.get(*args, **kwargs)
     response.raise_for_status()

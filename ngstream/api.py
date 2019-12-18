@@ -15,6 +15,12 @@ from pkg_resources import iter_entry_points, load_entry_point
 from xphyle import xopen
 
 
+class ProtocolStateError(Exception):
+    """
+    The protocol is in an invalid state.
+    """
+
+
 class Record(metaclass=ABCMeta):
     """
     Base class for seqeuence records. Defines the minimum necessary information about

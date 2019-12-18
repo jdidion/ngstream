@@ -1,5 +1,5 @@
 import os
-from setuptools import setup
+from setuptools import setup, find_packages
 import sys
 
 
@@ -17,7 +17,7 @@ with open(
 
 setup(
     name="ngstream",
-    use_setuptools_scm=True,
+    use_scm_version=True,
     description="Utilities for streaming NGS reads from SRA and GA4GH accessions.",
     long_description=long_description,
     long_description_content_type="text/markdown",
@@ -25,7 +25,7 @@ setup(
     author="John Didion",
     author_email="github@didion.net",
     license="Public Domain",
-    packages=["ngstream"],
+    packages=find_packages(),
     install_requires=[
         "pokrok",
         "xphyle>=4.0.0"

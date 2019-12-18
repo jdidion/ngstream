@@ -1,4 +1,6 @@
+from ngstream.protocols.sra import DefaultSraRecord
 from ngstream.protocols.sra import SraProtocol
+
 import pytest
 
 
@@ -12,30 +14,34 @@ PE_ACCESSION = "ERR532275"
 
 def test_read_single_end(datadir):
     fastq = []
+
     with SraProtocol(SE_ACCESSION) as reader:
         assert reader.name == SE_ACCESSION
         assert reader.paired is False
-        for i, reads in enumerate(reader):
+        for i, read in enumerate(reader):
             if i == 10:
                 break
-            assert len(reads) == 1
-            fastq.append(reads[0])
+            assert isinstance(read, DefaultSraRecord)
+            fastq.append(read.as_fastq())
 
     with open(datadir / f"{SE_ACCESSION}.fastq", "rt") as inp:
-        assert inp.read() == "".join(fastq)
+        assert inp.read() == "\n".join(fastq)
 
 
 def test_read_paired_end(datadir):
     fastq1 = []
     fastq2 = []
+
     with SraProtocol(PE_ACCESSION) as reader:
         assert reader.name == PE_ACCESSION
         assert reader.paired is True
-        for i, reads in enumerate(reader):
-            assert len(reads) == 2
-            fastq1.append(reads[0])
-            fastq2.append(reads[1])
+        for i, frag in enumerate(reader):
+            assert len(frag) == 2
+            fastq1.append(frag[0].as_fastq())
+            fastq2.append(frag[1].as_fastq())
+
     with open(datadir / f"{PE_ACCESSION}.1.fastq", "rt") as inp:
-        assert inp.read() == "".join(fastq1)
+        assert inp.read() == "\n".join(fastq1)
+
     with open(datadir / f"{PE_ACCESSION}.2.fastq", "rt") as inp:
-        assert inp.read() == "".join(fastq2)
+        assert inp.read() == "\n".join(fastq2)

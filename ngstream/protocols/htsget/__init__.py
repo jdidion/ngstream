@@ -9,9 +9,8 @@ import json
 
 from xphyle.utils import read_delimited_as_dict
 
-from ngstream.protocols import ProtocolStateError
 from ngstream.protocols.htsget._base import *
-from ngstream.api import Protocol, Fragment, dump_fastq
+from ngstream.api import Protocol, ProtocolStateError, Fragment, dump_fastq
 from ngstream.utils import CoordinateBatcher, CoordBatch, GenomeReference
 
 
