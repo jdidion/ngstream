@@ -1,5 +1,5 @@
-module = ngstream
-repo = jdidion/$(module)
+package = ngstream
+repo = jdidion/$(package)
 desc = Release $(version)
 tests = tests
 pytestops = -vv -s --full-trace
@@ -29,7 +29,11 @@ docs:
 	make -C doc html
 
 lint:
-	pylint $(module)
+	pylint $(package)
+
+reformat:
+	black $(package)
+	black $(tests)
 
 clean:
 	rm -Rf __pycache__
@@ -40,7 +44,7 @@ clean:
 	rm -Rf dist
 	rm -Rf build
 	rm -Rf .adapters
-	rm -Rf atropos.egg-info
+	rm -Rf $(module).egg-info
 
 tag:
 	git tag $(version)

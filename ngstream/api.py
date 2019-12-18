@@ -142,7 +142,7 @@ class Protocol(Generic[RecordType], metaclass=GenericMeta):
 
 def dump_fastq(
     protocol: Protocol,
-    prefix: str,
+    prefix: Optional[str] = None,
     output_mode: str = "wt",
     compression: Union[bool, str] = True,
     interleaved: bool = False,

@@ -64,8 +64,8 @@ import ngstream
 
 # Grab 1000 read pairs from an SRA run and write them to FASTQ files.
 accession = 'SRR3618567'
-with ngstream.open("SRR3618567", protocol="sra") as reader:
-    files = ngstream.dump_fastq(accession, item_limit=1000)
+with ngstream.open("SRR3618567", protocol="sra", item_limit=1000) as reader:
+    files = ngstream.dump_fastq(reader)
     print(f"Wrote {reader.read_count} reads from {accession} to {files[0]}, {files[1]}")
 ```
 
@@ -82,16 +82,9 @@ Coming soon
 
 # Developers
 
-* We welcome any contributions via pull requests.
+* We welcome contributions via pull requests.
 * Unit tests are highly desirable.
-* Style-wise, we try to adhere to PEP8, and to the [Google python style guidelines](https://google.github.io/styleguide/pyguide.html) when there is ambiguity.
+* Style-wise, we enforce [black](https://black.readthedocs.io/en/stable/) code style. Please use `make reformat`.
 * We use Google-style docstrings, which are formatted by the [Napoleon Sphinx Plugin](https://pypi.python.org/pypi/sphinxcontrib-napoleon).
 * We run pylint as part of each build and strive to maintain a 10/10 score.
 * We enforce a [Code of Conduct](CODE_OF_CONDUCT.md).
-
-# Todo
-
-* Add EGA support https://www.ebi.ac.uk/ega/about/your_EGA_account/download_streaming_client#API
-* Acceleration of SRA downloads using prefetch: https://twitter.com/PhilippBayer/status/1076800095910150145
-* Replace pysam with bamnostic: https://github.com/betteridiot/bamnostic
-* Use pysradb to e.g. convert SRX IDs to list of SRRs: https://github.com/saketkc/pysradb

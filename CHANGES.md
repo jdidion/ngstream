@@ -1,3 +1,7 @@
+# 0.2.1 (2019.12.18)
+
+* Make `prefix` optional for `dump_fastq`
+
 # 0.2.0 (2019.12.18)
 
 * Changed name from srastream to ngstream
