@@ -53,7 +53,7 @@ del_tag:
 	git tag -d $(version)
 
 pypi_release:
-	python setup.py sdist upload -r pypi
+	twine upload dist/*
 
 release: clean tag
 	${MAKE} test pypi_release push_tag || (${MAKE} del_tag && exit 1)
