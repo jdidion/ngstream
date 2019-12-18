@@ -1,4 +1,4 @@
-import os
+from pathlib import Path
 from setuptools import setup, find_packages
 import sys
 
@@ -8,18 +8,18 @@ if sys.version_info < (3, 6):
     sys.exit(1)
 
 
+
 with open(
-    os.path.join(os.path.abspath(os.path.dirname(__file__)), "README.md"),
-    encoding="utf-8"
+    Path(__file__).parent.absolute() / "README.md", encoding="utf-8"
 ) as f:
-    long_description = f.read()
+    readme = f.read()
 
 
 setup(
     name="ngstream",
     use_scm_version=True,
     description="Utilities for streaming NGS reads from SRA and GA4GH accessions.",
-    long_description=long_description,
+    long_description=readme,
     long_description_content_type="text/markdown",
     url="https://github.com/jdidion/ngstream",
     author="John Didion",
