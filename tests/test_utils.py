@@ -1,7 +1,7 @@
 from ngstream.utils import *
 
 
-def test_IndexBatcher():
+def test_index_batcher():
     batcher = IndexBatcher(batch_size=10)
     assert list(batcher(100)) == [
         (i, start, 10) for i, start in enumerate(range(0, 100, 10))

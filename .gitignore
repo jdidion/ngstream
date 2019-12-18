@@ -7,3 +7,5 @@ ngstream.egg-info/
 docs/_build/
 .idea/
 .pytest_cache/
+tests/test_htsget/ENCFF000VWO.bam*
+.eggs

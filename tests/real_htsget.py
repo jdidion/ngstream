@@ -21,7 +21,8 @@ pytestmark = pytest.mark.skipif_no_internet()
 
 class Field:
     def __init__(
-            self, name: str, cmp_func: Optional[Callable[[Any, Any], bool]] = None):
+        self, name: str, cmp_func: Optional[Callable[[Any, Any], bool]] = None
+    ):
         self.name = name
         self.cmp_func = cmp_func
 
@@ -38,21 +39,23 @@ class Field:
 
 
 class SortedField(Field):
-    def __call__(self, v1, v2, read: Optional = None):
+    def assert_(self, v1, v2, read: pysam.AlignedSegment):
         assert sorted(v1) == sorted(v2)
 
 
 class DownloadFailedException(Exception):
-    """Exception raised when we downloading the data failed for some reason.
+    """
+    Exception raised when we downloading the data failed for some reason.
     """
 
 
 class Contig:
     """Represents a single contig within the BAM file.
     """
+
     def __init__(
-            self, reference_name, reference_md5, length, start_positions,
-            end_positions):
+        self, reference_name, reference_md5, length, start_positions, end_positions
+    ):
         self.reference_name = reference_name
         self.reference_md5 = reference_md5
         self.length = length
@@ -62,22 +65,32 @@ class Contig:
 
 class ServerTester:
     def __init__(
-            self, source_file_name: str, server_name: str, server_url: str,
-            filter_unmapped: bool = False, random_seed: int = 1,
-            bearer_token: Optional[str] = None, ca_bundle: Optional[str] = None,
-            tmpdir: Path = None, num_boundary_reads: int = 10,
-            max_references: int = 100, num_random_queries: int = 20,
-            max_random_query_length: int = 10 ** 6):
-        extension = os.path.splitext(source_file_name)[1].lower()
+        self,
+        source_file: Path,
+        server_name: str,
+        server_url: str,
+        filter_unmapped: bool = False,
+        random_seed: int = 1,
+        bearer_token: Optional[str] = None,
+        ca_bundle: Optional[str] = None,
+        tmpdir: Path = None,
+        num_boundary_reads: int = 10,
+        max_references: int = 100,
+        num_random_queries: int = 20,
+        max_random_query_length: int = 10 ** 6,
+    ):
+        extension = source_file.suffix.lower()
+
         if extension == ".cram":
             self.data_format = FORMAT_CRAM
         elif extension == ".bam":
             self.data_format = FORMAT_BAM
         else:
             raise ValueError(
-                f"Unknown file format: {extension}. Please use .bam or .cram")
+                f"Unknown file format: {extension}. Please use .bam or .cram"
+            )
 
-        self.source_file_name = source_file_name
+        self.source_file = source_file
         self.server_name = server_name
         self.server_url = server_url
         self.filter_unmapped = filter_unmapped
@@ -90,7 +103,7 @@ class ServerTester:
         self.num_random_queries = num_random_queries
         self.max_random_query_length = max_random_query_length
 
-        self.alignment_file = pysam.AlignmentFile(self.source_file_name)
+        self.alignment_file = pysam.AlignmentFile(str(self.source_file))
         self.temp_file_name = None
         self.subset_alignment_file = None
         self.contigs = []
@@ -112,6 +125,7 @@ class ServerTester:
 
     def run(self):
         self.initialise()
+
         try:
             self.run_full_contig_fetch()
             self.run_start_reads()
@@ -128,6 +142,7 @@ class ServerTester:
         # we can compare them.
         r1 = self.alignment_file.references[local_rid]
         r2 = self.subset_alignment_file.references[remote_rid]
+
         if self.filter_unmapped and local_read.mate_is_unmapped:
             ret = True
             # We allow the remote reference ID to be unset if we are filtering
@@ -142,6 +157,7 @@ class ServerTester:
                 ret = True
             else:
                 ret = r1 == r2
+
         return ret
 
     def next_reference_start_equality(self, v1, v2, local_read):
@@ -156,6 +172,7 @@ class ServerTester:
                 ret = v1 == v2
         else:
             ret = v1 == v2
+
         return ret
 
     def flags_equality(self, local_flags, remote_flags, local_read):
@@ -163,9 +180,11 @@ class ServerTester:
         Compares the specified flags values.
         """
         condition = (
-                self.filter_unmapped and
-                local_read.mate_is_unmapped and
-                local_read.mate_is_reverse)
+            self.filter_unmapped
+            and local_read.mate_is_unmapped
+            and local_read.mate_is_reverse
+        )
+
         if condition:
             # If we are filtering out unmapped reads and the mate is unmapped, then
             # the mate_is_reverse flag can't be set on the remote flags. This is
@@ -173,6 +192,7 @@ class ServerTester:
             ret = local_flags == remote_flags + 32
         else:
             ret = local_flags == remote_flags
+
         return ret
 
     def get_start_positions(self, reference_name):
@@ -180,10 +200,12 @@ class ServerTester:
         reference.
         """
         start_positions = []
+
         for read in self.alignment_file.fetch(reference_name):
             start_positions.append(read.pos)
             if len(start_positions) == self.num_boundary_reads:
                 break
+
         return start_positions
 
     def get_end_positions(self, reference_name, length):
@@ -191,6 +213,7 @@ class ServerTester:
         Returns the positions of the last num_boundary_reads on the specified reference.
         """
         x = length
+
         while True:
             reads = self.alignment_file.fetch(reference_name, x)
             try:
@@ -199,9 +222,12 @@ class ServerTester:
             except:
                 # Skip back 1% of the length of the chromosome
                 x = x - length / 100
+
         positions = deque([], maxlen=self.num_boundary_reads)
+
         for read in self.alignment_file.fetch(reference_name, x):
             positions.append(read.pos)
+
         return list(positions)
 
     def initialise(self):
@@ -211,24 +237,30 @@ class ServerTester:
         """
         random.seed(self.random_seed)
         fd, self.temp_file_name = tempfile.mkstemp(
-            prefix="gastream_test_", dir=self.tmpdir, suffix="." + self.data_format)
+            prefix="gastream_test_", dir=self.tmpdir, suffix="." + self.data_format
+        )
         os.close(fd)
+
         # Determine the bounds of the individual contigs.
         total_references = len(self.alignment_file.lengths)
         num_references = min(self.max_references, total_references)
         for j in range(num_references):
             reference_name = self.alignment_file.references[j]
-            sq = self.alignment_file.header['SQ'][j]
-            reference_md5 = sq.get('M5', None)
+            sq = self.alignment_file.header["SQ"][j]
+            reference_md5 = sq.get("M5", None)
             length = self.alignment_file.lengths[j]
-            assert sq['LN'] == length
-            assert sq['SN'] == reference_name
+            assert sq["LN"] == length
+            assert sq["SN"] == reference_name
             start_positions = self.get_start_positions(reference_name)
             if len(start_positions) > 0:
                 end_positions = self.get_end_positions(reference_name, length)
                 contig = Contig(
-                    reference_name, reference_md5, length, start_positions,
-                    end_positions)
+                    reference_name,
+                    reference_md5,
+                    length,
+                    start_positions,
+                    end_positions,
+                )
                 self.contigs.append(contig)
 
     def verify_reads_equal(self, r1, r2):
@@ -244,10 +276,12 @@ class ServerTester:
         def check_reads_for_position(_d1, _d2):
             num_checks = 0
             assert len(_d1) == len(_d2)
+
             for _k in _d1.keys():
                 assert _k in _d2
                 self.verify_reads_equal(d1[_k], _d2[_k])
                 num_checks += 1
+
             return num_checks
 
         # Because the order of reads for a given position is unspecified,
@@ -282,14 +316,18 @@ class ServerTester:
         assert total_checks == num_reads
 
     def verify_query(
-            self, reference_name=None, start=None, end=None, **download_kwargs):
+        self, reference_name=None, start=None, end=None, **download_kwargs
+    ):
         """
         Runs the specified query and verifies the result.
         """
         downloader = BamHtsgetDownloader(self.temp_file_name)
         downloader.download_once(
-            self.server_url, reference_name=reference_name, start=start, end=end,
-            **download_kwargs
+            self.server_url,
+            reference_name=reference_name,
+            start=start,
+            end=end,
+            **download_kwargs,
         )
 
         # Index the downloaded file and compare the reads.
@@ -297,6 +335,7 @@ class ServerTester:
 
         # Analyse the reads
         iter1 = self.alignment_file.fetch(reference_name, start, end)
+
         if self.data_format == FORMAT_CRAM:
             # Due to a bug in htslib, we cannot use the standard code path below
             # for CRAM files that have no records. The workaround is to open the
@@ -306,11 +345,16 @@ class ServerTester:
             # special case.
             # See https://github.com/pysam-developers/pysam/issues/483
             tmp = pysam.AlignmentFile(
-                self.temp_file_name, filepath_index="/no/such/index/exists.crai")
+                self.temp_file_name, filepath_index="/no/such/index/exists.crai"
+            )
             empty = True
-            for _ in tmp.head(1):
-                empty = False
-            tmp.close()
+
+            try:
+                for _ in tmp.head(1):
+                    empty = False
+            finally:
+                tmp.close()
+
             if empty:
                 # Make sure the original iterator is also empty...
                 count = 0
@@ -318,25 +362,28 @@ class ServerTester:
                     count += 1
                 assert count == 0
                 return
+
         try:
             self.subset_alignment_file = pysam.AlignmentFile(self.temp_file_name)
             iter2 = self.subset_alignment_file.fetch(reference_name, start, end)
         except ValueError as ve:
             raise DownloadFailedException("Reading downloaded data: {}".format(ve))
+
         if self.filter_unmapped:
             iter1 = filter(lambda read: not read.is_unmapped, iter1)
+
         self.verify_reads(iter1, iter2)
 
     def run_random_reads(self):
         """
-        Runs tests for valid ranges chosen randomly across the available
-        regions.
+        Runs tests for valid ranges chosen randomly across the available regions.
         """
         for _ in range(self.num_random_queries):
             contig = random.choice(self.contigs)
             start = random.randint(0, contig.length)
             end = random.randint(
-                start, min(start + self.max_random_query_length, contig.length))
+                start, min(start + self.max_random_query_length, contig.length)
+            )
             self.verify_query(contig.reference_name, start=start, end=end)
 
     def run_full_contig_fetch(self):
@@ -357,12 +404,14 @@ class ServerTester:
                 (None, contig.start_positions[-1] + 1),
                 (
                     max(0, contig.start_positions[0] - 100),
-                    contig.start_positions[0] + 1),
-                (contig.start_positions[-1], contig.start_positions[-1] + 1)
+                    contig.start_positions[0] + 1,
+                ),
+                (contig.start_positions[-1], contig.start_positions[-1] + 1),
             ]
             for start, end in values:
                 self.verify_query(
-                    reference_name=contig.reference_name, start=start, end=end)
+                    reference_name=contig.reference_name, start=start, end=end
+                )
 
     def run_end_reads(self):
         """
@@ -375,11 +424,13 @@ class ServerTester:
                     (contig.end_positions[0], None),
                     (
                         max(0, contig.end_positions[0] - 100),
-                        contig.end_positions[0] + 1),
+                        contig.end_positions[0] + 1,
+                    ),
                 ]
                 for start, end in values:
                     self.verify_query(
-                        reference_name=contig.reference_name, start=start, end=end)
+                        reference_name=contig.reference_name, start=start, end=end
+                    )
 
     def cleanup(self):
         self.alignment_file.close()
@@ -400,7 +451,12 @@ def hashkey(read):
     # (first of pair, second of pair, not primary alignment, supplementary alignment).
     """
     key = "{}_{}_{}_{}_{}_{}_{}".format(
-        read.query_name, read.pos, read.cigar,
-        int(read.is_read1), int(read.is_read2),
-        int(read.is_secondary), int(read.is_supplementary))
+        read.query_name,
+        read.pos,
+        read.cigar,
+        int(read.is_read1),
+        int(read.is_read2),
+        int(read.is_secondary),
+        int(read.is_supplementary),
+    )
     return key

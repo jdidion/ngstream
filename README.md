@@ -6,7 +6,7 @@ ngstream is a small python (3.6+) library that makes it easy to stream NGS reads
 
 # Dependencies
 
-* Interacting with SRA requires [NGS](https://github.com/ncbi/ngs) and the python language bindings to be installed. Follow the instructions [here](https://github.com/ncbi/ngs/wiki/Building-and-Installing-from-Source). We recommend installing the SDK from [bioconda](https://bioconda.github.io/recipes/ncbi-ngs-sdk/README.html) and then installing the python library from GitHub.
+* Interacting with SRA requires [NGS](https://github.com/ncbi/ngs) and the python language bindings to be installed. Follow the instructions [here](https://github.com/ncbi/ngs/wiki/Building-and-Installing-from-Source). We recommend installing the SDK from [bioconda](https://bioconda.github.io/recipes/ncbi-ngs-sdk/README.html) or HomeBrew (`brew install sratookkit`) and then installing the python library from GitHub.
 * pysam is required for converting between BAM/CRAM (e.g. downloaded with Htsget) and SAM/FASTQ.
 
 Note that the SRA toolkit by default caches downloaded data -- if you mysteriously run out of hard disk space, this is probably why. Instructions on how to configure/disable caching are [here](https://github.com/ncbi/sra-tools/wiki/Toolkit-Configuration). If you want to change the cache location, use the following command (it won't return 0, but it still works):
@@ -23,7 +23,7 @@ pip install ngstream
 
 # Building from source
 
-Clone this repository and run
+Clone this repository and run:
 
 ```
 make
@@ -35,7 +35,7 @@ make
 import ngstream
 
 # Use the API to stream reads within your own python program.
-with ngstream.open('SRR3618567', protocol='sra') as reader:
+with ngstream.open("SRR3618567", protocol="sra") as reader:
     for record in reader:
         # `record` is an `ngstream.api.Record` object if the data is
         # single-end, and a `ngstream.api.Fragment` object if the data
@@ -50,9 +50,9 @@ import ngstream
 from pathlib import Path
 
 url = 'https://era.org/hts/ABC123'
-ref = ngstream.GenomeReference('GRCh37', Path('GRCh37_sizes.txt'))
+ref = ngstream.GenomeReference("GRCh37", Path("GRCh37_sizes.txt"))
 
-with ngstream.open(url, protocol='htsget', reference=ref) as reader:
+with ngstream.open(url, protocol="htsget", reference=ref) as reader:
     for pair in reader:
         print("\n".join(str(read) for read in pair))
 ```
@@ -64,7 +64,7 @@ import ngstream
 
 # Grab 1000 read pairs from an SRA run and write them to FASTQ files.
 accession = 'SRR3618567'
-with ngstream.open('SRR3618567', protocol='sra') as reader:
+with ngstream.open("SRR3618567", protocol="sra") as reader:
     files = ngstream.dump_fastq(accession, item_limit=1000)
     print(f"Wrote {reader.read_count} reads from {accession} to {files[0]}, {files[1]}")
 ```
@@ -93,3 +93,5 @@ Coming soon
 
 * Add EGA support https://www.ebi.ac.uk/ega/about/your_EGA_account/download_streaming_client#API
 * Acceleration of SRA downloads using prefetch: https://twitter.com/PhilippBayer/status/1076800095910150145
+* Replace pysam with bamnostic: https://github.com/betteridiot/bamnostic
+* Use pysradb to e.g. convert SRX IDs to list of SRRs: https://github.com/saketkc/pysradb

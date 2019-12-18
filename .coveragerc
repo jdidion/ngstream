@@ -2,8 +2,6 @@
 omit =
     tests/*
     setup.py
-    srastream/_version.py
-    versioneer.py
     *site-packages/*
 
 [report]

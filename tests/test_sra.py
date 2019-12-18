@@ -21,8 +21,8 @@ def test_read_single_end(datadir):
             assert len(reads) == 1
             fastq.append(reads[0])
 
-    with open(datadir / f"{SE_ACCESSION}.fastq", 'rt') as inp:
-        assert inp.read() == ''.join(fastq)
+    with open(datadir / f"{SE_ACCESSION}.fastq", "rt") as inp:
+        assert inp.read() == "".join(fastq)
 
 
 def test_read_paired_end(datadir):
@@ -35,7 +35,7 @@ def test_read_paired_end(datadir):
             assert len(reads) == 2
             fastq1.append(reads[0])
             fastq2.append(reads[1])
-    with open(datadir / f"{PE_ACCESSION}.1.fastq", 'rt') as inp:
-        assert inp.read() == ''.join(fastq1)
-    with open(datadir / f"{PE_ACCESSION}.2.fastq", 'rt') as inp:
-        assert inp.read() == ''.join(fastq2)
+    with open(datadir / f"{PE_ACCESSION}.1.fastq", "rt") as inp:
+        assert inp.read() == "".join(fastq1)
+    with open(datadir / f"{PE_ACCESSION}.2.fastq", "rt") as inp:
+        assert inp.read() == "".join(fastq2)

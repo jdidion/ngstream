@@ -1,30 +1,45 @@
+module = ngstream
+repo = jdidion/$(module)
+desc = Release $(version)
 tests = tests
-desc = ''
-# Use this option to show full stack trace for errors
-#pytestopts = "--full-trace"
+pytestops = -vv -s --full-trace
 
-BUILD = python setup.py install
-TEST  = py.test -m "not perf" --cov --cov-report term-missing $(pytestopts) $(tests)
+all: clean install test
 
-all:
-	$(BUILD)
-	$(TEST)
+build:
+	python setup.py build_ext -i
+	python setup.py sdist bdist_wheel
 
-install:
-	$(BUILD)
+install: clean build
+	python setup.py install $(installargs)
 
 test:
-	$(TEST)
+	py.test $(pytestops) $(tests)
 
-perftest:
-	py.test -m "perf" $(tests)
+docs:
+	make -C doc html
+
+lint:
+	pylint $(module)
 
 clean:
 	rm -Rf __pycache__
 	rm -Rf **/__pycache__/*
+	rm -Rf **/*.c
+	rm -Rf **/*.so
+	rm -Rf **/*.pyc
 	rm -Rf dist
 	rm -Rf build
-	rm -Rf *.egg-info
+	rm -Rf .adapters
+	rm -Rf atropos.egg-info
+
+docker:
+	# build
+	docker build -f Dockerfile -t $(repo):$(version) .
+	# add alternate tags
+	docker tag $(repo):$(version) $(repo):latest
+	# push to Docker Hub
+	docker login && docker push $(repo)
 
 release:
 	$(clean)
@@ -35,22 +50,27 @@ release:
 	$(TEST)
 	python setup.py sdist bdist_wheel
 	# release
-	twine upload dist/ngstream-$(version).tar.gz
-	# push new tag after successful build
+	python setup.py sdist upload -r pypi
 	git push origin --tags
-	# create release in GitHub
+	$(github_release)
+	$(docker)
+
+tag:
+	git tag $(version)
+
+release: clean tag install test
+	python setup.py sdist upload -r pypi
+	git push origin --tags
+	# github release
 	curl -v -i -X POST \
 		-H "Content-Type:application/json" \
 		-H "Authorization: token $(token)" \
-		https://api.github.com/repos/jdidion/ngstream/releases \
-		-d '{"tag_name":"$(version)","target_commitish": "master","name": "$(version)","body": "$(desc)","draft": false,"prerelease": false}'
-
-docs:
-	make -C docs api
-	make -C docs html
-
-readme:
-	pandoc --from=markdown --to=rst --output=README.rst README.md
-
-lint:
-	pylint ngstream
+		https://api.github.com/repos/$(repo)/releases \
+		-d '{\
+		  "tag_name":"$(version)",\
+		  "target_commitish": "master",\
+		  "name": "$(version)",\
+		  "body": "$(desc)",\
+		  "draft": false,\
+		  "prerelease": false \
+		}'

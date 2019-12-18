@@ -1,7 +1,6 @@
 import os
 from setuptools import setup
 import sys
-import versioneer
 
 
 if sys.version_info < (3, 6):
@@ -18,8 +17,7 @@ with open(
 
 setup(
     name="ngstream",
-    version=versioneer.get_version(),
-    cmdclass=versioneer.get_cmdclass(),
+    use_setuptools_scm=True,
     description="Utilities for streaming NGS reads from SRA and GA4GH accessions.",
     long_description=long_description,
     long_description_content_type="text/markdown",
@@ -29,12 +27,19 @@ setup(
     license="Public Domain",
     packages=["ngstream"],
     install_requires=[
-        "requests",
         "pokrok",
-        "pysam",
         "xphyle>=4.0.0"
     ],
-    tests_require=["pytest", "pytest-cov", "pytest-datadir"],
+    extras_require={
+        "pysam": ["pysam"],
+        "requests": ["requests"],
+        "subby": ["subby>=0.1.7"]
+    },
+    tests_require=[
+        "pytest",
+        "pytest-cov",
+        "pytest-datadir",
+    ],
     entry_points={
         "console_scripts": [
             "sra_dump=ngstream.protocols.sra:sra_dump_cli",
@@ -42,7 +47,7 @@ setup(
         ],
         "ngstream.protocol": [
             "sra=ngstream.protocols.sra:SraProtocol",
-            "htsget=ngstream.protocols.htsget:HtsgetProtocol"
+            "htsget=ngstream.protocols.htsget:HtsgetProtocol [pysam,requests,subby]"
         ]
     },
     classifiers=[
