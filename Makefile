@@ -56,7 +56,7 @@ pypi_release:
 	python setup.py sdist upload -r pypi
 
 release: clean tag
-	${MAKE} install install_extras test pypi_release push_tag || (${MAKE} del_tag && exit 1)
+	${MAKE} test pypi_release push_tag || (${MAKE} del_tag && exit 1)
 
 	# github release
 	curl -v -i -X POST \
