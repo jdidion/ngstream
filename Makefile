@@ -20,7 +20,7 @@ install_extra_requirements:
 	pip install -r requirements-extra.txt
 
 test: install install_extra_requirements install_test_requirements
-	python -c "import ngs" pytest $(pytestops) $(tests)
+	pytest $(pytestops) $(tests)
 
 test_release_setup:
 	twine check dist/*
