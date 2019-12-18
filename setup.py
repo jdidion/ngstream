@@ -8,7 +8,6 @@ if sys.version_info < (3, 6):
     sys.exit(1)
 
 
-
 with open(
     Path(__file__).parent.absolute() / "README.md", encoding="utf-8"
 ) as f:
@@ -18,14 +17,15 @@ with open(
 setup(
     name="ngstream",
     use_scm_version=True,
+    author="John Didion",
+    author_email="github@didion.net",
+    url="https://github.com/jdidion/ngstream",
     description="Utilities for streaming NGS reads from SRA and GA4GH accessions.",
     long_description=readme,
     long_description_content_type="text/markdown",
-    url="https://github.com/jdidion/ngstream",
-    author="John Didion",
-    author_email="github@didion.net",
-    license="Public Domain",
+    license="MIT",
     packages=find_packages(),
+    setup_requires=["setuptools_scm"],
     install_requires=[
         "pokrok",
         "xphyle>=4.0.0"
