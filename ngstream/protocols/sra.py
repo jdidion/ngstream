@@ -7,7 +7,7 @@ TODO: Incorporate Popen hacks from
 """
 from argparse import ArgumentParser
 import json
-from typing import Iterator, Callable, Union, Optional, Generic
+from typing import Iterator, Callable, Union, Optional
 from ngs import NGS
 from ngs.Read import Read
 from ngstream.api import (
@@ -113,7 +113,7 @@ class SraRecordFactory:
             yield from records
 
 
-class SraProtocol(Generic[RecordType], Protocol[RecordType]):
+class SraProtocol(Protocol):
     """
     Iterates through a read collection for a given accession number using the ngs-lib
     python bindings.

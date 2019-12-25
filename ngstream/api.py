@@ -7,7 +7,6 @@ from typing import (
     Union,
     TypeVar,
     Generic,
-    GenericMeta,
     Optional,
 )
 
@@ -89,7 +88,10 @@ class Fragment(Generic[RecordType]):
         return "\n".join(read.as_fastq() for read in self.reads)
 
 
-class Protocol(Generic[RecordType], metaclass=GenericMeta):
+class Protocol(metaclass=ABCMeta):
+    """
+    Todo: this should be generic
+    """
     def __enter__(self):
         self.start()
         return self

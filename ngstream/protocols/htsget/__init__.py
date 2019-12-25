@@ -14,7 +14,7 @@ from ngstream.api import Protocol, ProtocolStateError, Fragment, dump_fastq
 from ngstream.utils import CoordinateBatcher, CoordBatch, GenomeReference
 
 
-class HtsgetProtocol(Protocol[SamRecord]):
+class HtsgetProtocol(Protocol):
     """
     Streams reads from a server that supports the Htsget protocol.
     """

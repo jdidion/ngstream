@@ -27,7 +27,10 @@ setup(
     long_description_content_type="text/markdown",
     license="MIT",
     packages=find_packages(),
-    setup_requires=["setuptools_scm"],
+    setup_requires=[
+        "setuptools_scm",
+        "wheel"
+    ],
     install_requires=[
         "pokrok",
         "xphyle>=4.0.0"
