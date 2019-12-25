@@ -1,3 +1,7 @@
+# 0.2.2 (2019.12.24)
+
+* Remove Generic superclass from Protocol
+
 # 0.2.1 (2019.12.18)
 
 * Make `prefix` optional for `dump_fastq`
